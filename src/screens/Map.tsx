@@ -14,6 +14,7 @@ import {
   StatusBar,
   Platform,
   Modal,
+  Pressable,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { KAKAO_JS_KEY, KAKAO_REST_API_KEY } from '@env';
@@ -59,8 +60,8 @@ interface PlaceItem {
 
 const windowHeight = Dimensions.get('window').height;
 const windowWidth = Dimensions.get('window').width;
-const BACKEND_URL = 'http://10.0.2.2:8000/api'; // 애뮬레이터
-// const BACKEND_URL = 'http://192.168.45.122:8000/api'; // 실제 기기
+// const BACKEND_URL = 'http://10.0.2.2:8000/api'; // 애뮬레이터
+const BACKEND_URL = 'http://192.168.0.15:8000/api'; // 실제 기기
 
 const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
 <!DOCTYPE html>
@@ -149,9 +150,17 @@ async function refreshAccessToken() {
 
 export default function Map() {
   const bottomSheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(
+  const COMPACT_HEIGHT = 110;
+
+  const defaultSnapPoints = useMemo(
     () => [windowHeight * 0.33, windowHeight * 0.75],
     [],
+  );
+  const [isSearching, setIsSearching] = useState(false);
+  // ⬅️ 검색 중이면 작게, 아니면 원래대로
+  const snapPoints = useMemo(
+    () => (isSearching ? [COMPACT_HEIGHT] : defaultSnapPoints),
+    [isSearching, defaultSnapPoints],
   );
   const animatedPosition = useSharedValue(0);
   const mapRef = useRef<WebView>(null);
@@ -216,6 +225,23 @@ export default function Map() {
       }
     };
     loadToken();
+  }, []);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+      setIsSearching(true);
+      // snapPoints가 [COMPACT_HEIGHT] 로 바뀌면서 0번 인덱스로 스냅
+      requestAnimationFrame(() => bottomSheetRef.current?.snapToIndex(0));
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setIsSearching(false);
+      // 다시 기본 스냅포인트로 돌아오면 0(=1/3 높이) 정도로 펼쳐주기
+      requestAnimationFrame(() => bottomSheetRef.current?.snapToIndex(0));
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -544,6 +570,16 @@ export default function Map() {
           />
         </View>
 
+        {dropdownOpen && (
+          <Pressable
+            style={styles.dropdownBackdrop}
+            onPress={() => {
+              setDropdownOpen(false);
+              Keyboard.dismiss();
+            }}
+          />
+        )}
+
         <View style={styles.searchBarWrapper}>
           <View style={styles.searchBar}>
             <Ionicons
@@ -711,73 +747,82 @@ export default function Map() {
                 </Text>
               </TouchableOpacity>
             </View>
-
-            {tab === '장소' ? (
+            {!isSearching && (
               <>
-                <Text style={styles.sectionTitle}>전체 리스트</Text>
-                <View style={styles.divider} />
-                <FlatList
-                  data={savedPlaces}
-                  keyExtractor={item => item.id}
-                  renderItem={({ item }) => (
-                    <View style={styles.placeRow}>
-                      <View style={styles.greenCircleSmall} />
-                      <View style={{ marginLeft: 6 }}>
-                        <Text style={styles.placeTitle}>{item.type}</Text>
-                        <View style={styles.placeMetaRow}>
-                          <MaterialIcons
-                            name="place"
-                            size={15}
-                            color="#444"
-                            style={{ marginRight: 2 }}
-                          />
-                          <Text style={styles.placeMetaText}>
-                            {item.location}
-                          </Text>
+                {tab === '장소' ? (
+                  <>
+                    <Text style={styles.sectionTitle}>전체 리스트</Text>
+                    <View style={styles.divider} />
+                    <FlatList
+                      data={savedPlaces}
+                      keyExtractor={item => item.id}
+                      renderItem={({ item }) => (
+                        <View style={styles.placeRow}>
+                          <View style={styles.greenCircleSmall} />
+                          <View style={{ marginLeft: 6 }}>
+                            <Text style={styles.placeTitle}>{item.type}</Text>
+                            <View style={styles.placeMetaRow}>
+                              <MaterialIcons
+                                name="place"
+                                size={15}
+                                color="#444"
+                                style={{ marginRight: 2 }}
+                              />
+                              <Text style={styles.placeMetaText}>
+                                {item.location}
+                              </Text>
+                            </View>
+                          </View>
                         </View>
-                      </View>
+                      )}
+                    />
+                  </>
+                ) : animalInfo ? (
+                  <View>
+                    <Text style={styles.animalTitle}>{animalInfo.name}</Text>
+                    <Text style={styles.animalSubtitle}>
+                      {animalInfo.english}
+                    </Text>
+                    <Image
+                      source={{ uri: animalInfo.image_url }}
+                      style={styles.animalImage}
+                      resizeMode="cover"
+                    />
+                    <Text style={styles.animalSectionTitle}>특징</Text>
+                    <View style={{ marginLeft: 8, marginBottom: 12 }}>
+                      {(Array.isArray(animalInfo.features)
+                        ? animalInfo.features
+                        : []
+                      ).map((txt: string, i: number) => (
+                        <Text key={i} style={styles.animalFeature}>
+                          • {txt}
+                        </Text>
+                      ))}
                     </View>
-                  )}
-                />
+                    <Text style={styles.animalSectionTitle}>대처법</Text>
+                    <View style={{ marginLeft: 8 }}>
+                      {(Array.isArray(animalInfo.precautions)
+                        ? animalInfo.precautions
+                        : []
+                      ).map((txt: string, i: number) => (
+                        <Text key={i} style={styles.animalPrecaution}>
+                          • {txt}
+                        </Text>
+                      ))}
+                    </View>
+                  </View>
+                ) : (
+                  <Text
+                    style={{
+                      textAlign: 'center',
+                      marginTop: 20,
+                      color: '#999',
+                    }}
+                  >
+                    동물 이름을 검색하면 정보가 나옵니다.
+                  </Text>
+                )}
               </>
-            ) : animalInfo ? (
-              <View>
-                <Text style={styles.animalTitle}>{animalInfo.name}</Text>
-                <Text style={styles.animalSubtitle}>{animalInfo.english}</Text>
-                <Image
-                  source={{ uri: animalInfo.image_url }}
-                  style={styles.animalImage}
-                  resizeMode="cover"
-                />
-                <Text style={styles.animalSectionTitle}>특징</Text>
-                <View style={{ marginLeft: 8, marginBottom: 12 }}>
-                  {(Array.isArray(animalInfo.features)
-                    ? animalInfo.features
-                    : []
-                  ).map((txt: string, i: number) => (
-                    <Text key={i} style={styles.animalFeature}>
-                      • {txt}
-                    </Text>
-                  ))}
-                </View>
-                <Text style={styles.animalSectionTitle}>대처법</Text>
-                <View style={{ marginLeft: 8 }}>
-                  {(Array.isArray(animalInfo.precautions)
-                    ? animalInfo.precautions
-                    : []
-                  ).map((txt: string, i: number) => (
-                    <Text key={i} style={styles.animalPrecaution}>
-                      • {txt}
-                    </Text>
-                  ))}
-                </View>
-              </View>
-            ) : (
-              <Text
-                style={{ textAlign: 'center', marginTop: 20, color: '#999' }}
-              >
-                동물 이름을 검색하면 정보가 나옵니다.
-              </Text>
             )}
           </BottomSheetView>
         </BottomSheet>
@@ -801,6 +846,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: 'hidden',
     marginTop: STATUSBAR_HEIGHT,
+  },
+  dropdownBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    backgroundColor: 'transparent',
   },
   searchBarWrapper: {
     position: 'absolute',

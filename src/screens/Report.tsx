@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,20 +6,35 @@ import {
   TouchableOpacity,
   TextInput,
   Image,
+  Pressable,
 } from 'react-native';
 import { Svg, G, Circle } from 'react-native-svg';
-import { useFocusEffect } from '@react-navigation/native';
-// import BottomSheet from '@gorhom/bottom-sheet';
-import {
-  BottomSheetModal,
-  BottomSheetModalProvider,
+import BottomSheet, {
+  BottomSheetView,
+  BottomSheetBackdrop,
+  BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet';
 
 export default function Report() {
   const [activeTab, setActiveTab] = useState('신고 통계');
   const [selectedPeriod, setSelectedPeriod] = useState('날짜 조회');
-  const bottomSheetRef = useRef<BottomSheetModal>(null);
-  const snapPoints = useMemo(() => ['40%'], []);
+
+  // Plain BottomSheet (포탈 불필요)
+  const bottomSheetRef = useRef<BottomSheet>(null);
+  const snapPoints = useMemo(() => ['25%', '50%'], []);
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        appearsOnIndex={0} // 열리면 나타남
+        disappearsOnIndex={-1} // 닫히면 사라짐
+        pressBehavior="close" // 배경 탭 시 닫기
+        opacity={0.5} // 어둡기
+      />
+    ),
+    [],
+  );
 
   const DonutChart = () => {
     const radius = 48;
@@ -34,18 +49,6 @@ export default function Report() {
 
     let offset = 0;
 
-    // useFocusEffect(
-    //   React.useCallback(() => {
-    //     console.log('🔄 Report 화면 포커스 됨 → 바텀시트 닫기');
-    //     if (activeTab === '신고 통계') {
-    //       bottomSheetRef.current?.close();
-    //     }
-    //     return () => {
-    //       console.log('👋 Report 화면에서 벗어남 → 바텀시트 닫기');
-    //       bottomSheetRef.current?.close(); // 화면 나갈 때도 닫음
-    //     };
-    //   }, [activeTab]),
-    // );
     return (
       <View style={styles.chartSection}>
         <Text style={styles.sectionTitle}>동물별 신고 건수</Text>
@@ -236,8 +239,9 @@ export default function Report() {
           <TouchableOpacity
             style={styles.dropdownButton}
             onPress={() => {
-              console.log('버튼 눌림');
-              bottomSheetRef.current?.present();
+              console.log('[Report] 날짜 조회 버튼 눌림 → snapToIndex(1)');
+              bottomSheetRef.current?.snapToIndex(1); // 50%로 열기
+              // bottomSheetRef.current?.expand();    // 완전 확장으로 열고 싶으면 이걸 사용
             }}
           >
             <Text style={styles.dropdownButtonText}>{selectedPeriod}</Text>
@@ -309,75 +313,118 @@ export default function Report() {
           </TouchableOpacity>
         </View>
       </View>
+
       <View style={styles.content}>
-        {activeTab === '신고 통계' && (
+        {activeTab === '신고 통계' ? (
           <>
             <DonutChart />
             <StackedBarChart />
           </>
+        ) : (
+          <RecordList />
         )}
-        {activeTab === '기록 조회' && <RecordList />}
       </View>
-      <BottomSheetModal
-        ref={bottomSheetRef}
-        index={0}
-        snapPoints={['50%']}
-        enablePanDownToClose
-      >
-        <View style={{ padding: 20 }}>
-          <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 10 }}>
-            날짜 조회
-          </Text>
 
-          {/* 선택 버튼 */}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-            {['최근 1개월', '최근 3개월', '최근 6개월', '최근 1년'].map(
-              (label, idx) => (
-                <TouchableOpacity
-                  key={idx}
-                  onPress={() => setSelectedPeriod(label)}
-                  style={{
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 20,
-                    backgroundColor:
-                      selectedPeriod === label ? '#FEBA15' : '#F0F0F0',
-                    marginRight: 10,
-                    marginBottom: 10,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      color: selectedPeriod === label ? '#000' : '#666',
-                      fontWeight: selectedPeriod === label ? 'bold' : 'normal',
-                    }}
+      {/* Plain BottomSheet: 포털 없이 최상단에 겹치게 올림 */}
+      <View pointerEvents="box-none" style={styles.overlayHost}>
+        <BottomSheet
+          ref={bottomSheetRef}
+          index={-1} // 초기 닫힘
+          snapPoints={['35%']}
+          enablePanDownToClose
+          onChange={i => console.log('[Report] sheet index =', i)}
+          backdropComponent={renderBackdrop}
+          backgroundStyle={{
+            backgroundColor: '#fff',
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
+          }}
+          handleIndicatorStyle={{
+            backgroundColor: '#CFCFCF',
+            width: 48,
+            height: 4,
+            borderRadius: 2,
+          }}
+        >
+          <BottomSheetView style={{ padding: 20 }}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>날짜 조회</Text>
+            </View>
+
+            <View style={styles.chipsRow}>
+              {[
+                '날짜 조회',
+                '최근 1개월',
+                '최근 3개월',
+                '최근 6개월',
+                '최근 1년',
+              ].map(label => {
+                const selected = selectedPeriod === label;
+                return (
+                  <Pressable
+                    key={label}
+                    onPress={() => setSelectedPeriod(label as any)}
+                    style={({ pressed }) => [
+                      styles.chipBase,
+                      pressed && styles.chipPressed, // 터치 중일 때 아주 살짝 음영
+                      selected && styles.chipSelected, // 선택 상태
+                    ]}
+                    android_ripple={{ color: '#0000000F', borderless: false }}
                   >
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              ),
-            )}
-          </View>
+                    <Text
+                      style={[
+                        styles.chipText,
+                        selected && styles.chipTextSelected,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
 
-          {/* 조회하기 */}
-          <TouchableOpacity
-            style={{
-              marginTop: 30,
-              backgroundColor: '#FEBA15',
-              paddingVertical: 12,
-              borderRadius: 20,
-              alignItems: 'center',
-            }}
-            onPress={() => {
-              console.log('조회하기:', selectedPeriod);
-              bottomSheetRef.current?.dismiss(); // <-- dismiss로 닫기
-            }}
-          >
-            <Text style={{ fontWeight: 'bold', color: '#fff' }}>조회하기</Text>
-          </TouchableOpacity>
-        </View>
-      </BottomSheetModal>
+            {/* 액션 버튼들 */}
+            <View style={styles.sheetActions}>
+              <TouchableOpacity
+                style={styles.ghostButton}
+                onPress={() => setSelectedPeriod('날짜 조회')}
+              >
+                <Text style={styles.ghostButtonText}>재설정</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={() => {
+                  console.log('조회하기:', selectedPeriod);
+                  bottomSheetRef.current?.close();
+                }}
+              >
+                <Text style={styles.primaryButtonText}>조회하기</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* 조회하기
+            <TouchableOpacity
+              style={{
+                marginTop: 30,
+                backgroundColor: '#FEBA15',
+                paddingVertical: 12,
+                borderRadius: 20,
+                alignItems: 'center',
+              }}
+              onPress={() => {
+                console.log('[Report] 조회하기:', selectedPeriod);
+                bottomSheetRef.current?.close();
+              }}
+            >
+              <Text style={{ fontWeight: 'bold', color: '#fff' }}>
+                조회하기
+              </Text>
+            </TouchableOpacity> */}
+          </BottomSheetView>
+        </BottomSheet>
+      </View>
     </View>
   );
 }
@@ -428,7 +475,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
     paddingTop: 20,
-    // overflow: 'hidden',
+    // overflow: 'hidden', // ← 가려질 수 있으니 주석 유지
   },
   chartSection: {
     marginBottom: 60,
@@ -517,6 +564,16 @@ const styles = StyleSheet.create({
   searchSection: {
     marginBottom: 20,
   },
+  sheetHeader: {
+    alignItems: 'center', // 가로 가운데
+    marginBottom: 12,
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
+    textAlign: 'center',
+  },
   searchTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -579,10 +636,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E0E0E0',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 5,
@@ -633,7 +687,6 @@ const styles = StyleSheet.create({
     height: 60,
     resizeMode: 'contain',
   },
-
   recordInfo: {
     flex: 1,
   },
@@ -671,4 +724,76 @@ const styles = StyleSheet.create({
     color: '#666666',
     marginTop: 50,
   },
+
+  // ⬇️ Plain BottomSheet를 최상단에 겹치게 올리기 위한 레이어
+  overlayHost: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9999,
+    elevation: 9999,
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+    marginBottom: 16,
+  },
+
+  chipBase: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#D2D2D2', // 연한 테두리
+    backgroundColor: '#FFFFFF', // 시트가 흰색이므로 투명과 동일한 톤
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  chipPressed: {
+    backgroundColor: '#D2D2D2',
+  },
+
+  chipSelected: {
+    backgroundColor: '#D2D2D2',
+    borderColor: '#D2D2D2',
+  },
+
+  chipText: {
+    fontSize: 13,
+    color: '#333',
+    fontWeight: '600',
+  },
+
+  chipTextSelected: {
+    color: '#222',
+    fontWeight: '800',
+  },
+  sheetActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+
+  ghostButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#E5E5E5',
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  ghostButtonText: { color: '#8A8A8A', fontWeight: '600' },
+
+  primaryButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F5C64D',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  primaryButtonText: { color: '#fff', fontWeight: '800' },
 });

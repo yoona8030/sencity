@@ -18,6 +18,7 @@ import { RouteProp } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/RootNavigator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { color } from 'react-native-elements/dist/helpers';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -44,9 +45,9 @@ export default function Login({ navigation, route }: Props) {
       const cleanedEmail = email.trim().toLowerCase();
       const cleanedPassword = password.trim();
       // 애뮬레이터
-      const response = await fetch('http://10.0.2.2:8000/api/login/', {
-        // 실제 기기
-        // const response = await fetch('http://192.168.45.122:8000/api/login/', {
+      // const response = await fetch('http://10.0.2.2:8000/api/login/', {
+      // 실제 기기
+      const response = await fetch('http://192.168.0.15:8000/api/login/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -190,7 +191,7 @@ export default function Login({ navigation, route }: Props) {
         <View style={styles.inputContainer}>
           <Text style={styles.label}>비밀번호</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { color: '#000' }]}
             onChangeText={setPassword}
             value={password}
             secureTextEntry

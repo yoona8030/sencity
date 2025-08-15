@@ -143,7 +143,7 @@ export default function Home() {
         />
 
         {/* Pagination Dots */}
-        <View style={[styles.dotsContainer, { marginBottom: 0 }]}>
+        <View style={styles.dotsAbsolute}>
           {newsList.map((_, i) => (
             <View
               key={i}
@@ -239,7 +239,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: 'bold',
   },
-
   newsCard: {
     borderRadius: 12,
     overflow: 'hidden',
@@ -257,6 +256,19 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 4,
   },
+  carouselWrap: {
+    position: 'relative',
+    marginBottom: 2, // ← 지도와의 간격 최소화 (원하면 0~8 사이로 조절)
+  },
+  dotsAbsolute: {
+    position: 'absolute',
+    bottom: 8, // 도트를 카드 하단 쪽으로 붙임
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+
   newsOverlayText: {
     position: 'absolute',
     bottom: 8,
@@ -285,7 +297,8 @@ const styles = StyleSheet.create({
   inactiveDot: { backgroundColor: 'rgba(255,255,255,0.5)' },
 
   mapSection: {
-    height: 250,
+    height: 290,
+    // flex: 1,
     marginHorizontal: 16,
     borderRadius: 12,
     overflow: 'hidden',
