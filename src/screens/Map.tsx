@@ -61,7 +61,7 @@ interface PlaceItem {
 const windowHeight = Dimensions.get('window').height;
 const windowWidth = Dimensions.get('window').width;
 // const BACKEND_URL = 'http://10.0.2.2:8000/api'; // 애뮬레이터
-const BACKEND_URL = 'http://192.168.0.15:8000/api'; // 실제 기기
+const BACKEND_URL = 'http://127.0.0.1:8000/api'; // 실제 기기
 
 const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
 <!DOCTYPE html>

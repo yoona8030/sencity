@@ -47,7 +47,7 @@ export default function Login({ navigation, route }: Props) {
       // 애뮬레이터
       // const response = await fetch('http://10.0.2.2:8000/api/login/', {
       // 실제 기기
-      const response = await fetch('http://192.168.0.15:8000/api/login/', {
+      const response = await fetch('http://127.0.0.1:8000/api/login/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

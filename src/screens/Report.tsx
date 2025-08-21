@@ -1,4 +1,10 @@
-import React, { useState, useRef, useMemo, useCallback } from 'react';
+import React, {
+  useState,
+  useRef,
+  useMemo,
+  useCallback,
+  useEffect,
+} from 'react';
 import {
   View,
   Text,
@@ -7,19 +13,54 @@ import {
   TextInput,
   Image,
   Pressable,
+  FlatList,
+  ActivityIndicator,
 } from 'react-native';
-import { Svg, G, Circle } from 'react-native-svg';
 import BottomSheet, {
   BottomSheetView,
   BottomSheetBackdrop,
   BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { PieChart, BarChart, Grid, XAxis } from 'react-native-svg-charts';
+import { animalImages } from '../utils/animalImages';
+
+function getDateRange(period: string) {
+  const today = new Date();
+  let from: Date | null = null;
+
+  switch (period) {
+    case '최근 1개월':
+      from = new Date(today);
+      from.setMonth(today.getMonth() - 1);
+      break;
+    case '최근 3개월':
+      from = new Date(today);
+      from.setMonth(today.getMonth() - 3);
+      break;
+    case '최근 6개월':
+      from = new Date(today);
+      from.setMonth(today.getMonth() - 6);
+      break;
+    case '최근 1년':
+      from = new Date(today);
+      from.setFullYear(today.getFullYear() - 1);
+      break;
+    default:
+      return null;
+  }
+
+  return {
+    from: from.toISOString().split('T')[0],
+    to: today.toISOString().split('T')[0],
+  };
+}
 
 export default function Report() {
   const [activeTab, setActiveTab] = useState('신고 통계');
   const [selectedPeriod, setSelectedPeriod] = useState('날짜 조회');
+  const [appliedPeriod, setAppliedPeriod] = useState('날짜 조회');
 
-  // Plain BottomSheet (포탈 불필요)
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['25%', '50%'], []);
 
@@ -27,154 +68,265 @@ export default function Report() {
     (props: BottomSheetBackdropProps) => (
       <BottomSheetBackdrop
         {...props}
-        appearsOnIndex={0} // 열리면 나타남
-        disappearsOnIndex={-1} // 닫히면 사라짐
-        pressBehavior="close" // 배경 탭 시 닫기
-        opacity={0.5} // 어둡기
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        pressBehavior="close"
+        opacity={0.5}
       />
     ),
     [],
   );
 
+  const COLORS = ['#FFF4DA', '#FFDE8E', '#FFCD52', '#F6A800', '#C3AB72'];
+
+  const Legend = ({
+    items,
+  }: {
+    items: { animal: string; count: number }[];
+  }) => {
+    const total = items.reduce((sum, d) => sum + d.count, 0);
+
+    return (
+      <View style={styles.legendContainer}>
+        {items.map((item, idx) => (
+          <View key={idx} style={styles.legendItem}>
+            <View
+              style={[
+                styles.legendColor,
+                { backgroundColor: COLORS[idx % COLORS.length] },
+              ]}
+            />
+            <Text style={styles.legendText}>
+              {item.animal} :{' '}
+              {total > 0 ? Math.round((item.count / total) * 100) : 0}%
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
   const DonutChart = () => {
-    const radius = 48;
-    const circumference = 2 * Math.PI * radius;
+    const [data, setData] = useState<{ animal: string; count: number }[]>([]);
+    const [loading, setLoading] = useState(true);
 
-    const data = [
-      { percent: 0.0, color: '#FFDE8E' },
-      { percent: 0.18, color: '#FFF4DA' },
-      { percent: 0.07, color: '#C3AB72' },
-      { percent: 0.01, color: '#F6A800' },
-    ];
+    useEffect(() => {
+      const fetchData = async () => {
+        try {
+          const token = await AsyncStorage.getItem('accessToken');
+          if (!token) return;
 
-    let offset = 0;
+          const res = await fetch(
+            'http://127.0.0.1:8000/api/reports/stats/animal',
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+            },
+          );
+          const json = await res.json();
+          if (Array.isArray(json)) setData(json);
+          else if (json.data && Array.isArray(json.data)) setData(json.data);
+        } catch (err) {
+          console.error(err);
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchData();
+    }, []);
+
+    if (loading) {
+      return (
+        <View style={{ alignItems: 'center', padding: 20 }}>
+          <ActivityIndicator size="large" />
+        </View>
+      );
+    }
+
+    const sorted = [...data].sort((a, b) => b.count - a.count);
+    const top4 = sorted.slice(0, 4);
+    const others = sorted.slice(4);
+    const othersSum = others.reduce((sum, d) => sum + d.count, 0);
+    const finalData =
+      othersSum > 0 ? [...top4, { animal: '기타', count: othersSum }] : top4;
 
     return (
       <View style={styles.chartSection}>
         <Text style={styles.sectionTitle}>동물별 신고 건수</Text>
-        <View style={styles.donutContainer}>
-          <View style={styles.legendContainer}>
-            <View style={styles.legendItem}>
-              <View
-                style={[styles.legendColor, { backgroundColor: '#F6A800' }]}
-              />
-              <Text style={styles.legendText}>고라니 : 74%</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View
-                style={[styles.legendColor, { backgroundColor: '#FFDE8E' }]}
-              />
-              <Text style={styles.legendText}>너구리 : 18%</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View
-                style={[styles.legendColor, { backgroundColor: '#FFF4DA' }]}
-              />
-              <Text style={styles.legendText}>여우 : 7%</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View
-                style={[styles.legendColor, { backgroundColor: '#C3AB72' }]}
-              />
-              <Text style={styles.legendText}>그 외 : 1%</Text>
-            </View>
-          </View>
-          <View style={styles.chartContainer}>
-            <Svg width="195" height="195" viewBox="3 5 140 140">
-              <G rotation="-181" origin="75, 75">
-                {data.map((segment, index) => {
-                  const dashArray = `${
-                    circumference * segment.percent
-                  } ${circumference}`;
-                  const strokeDashoffset = circumference * (1 - offset);
-                  offset += segment.percent;
-                  return (
-                    <Circle
-                      key={index}
-                      cx="75"
-                      cy="70"
-                      r={radius}
-                      stroke={segment.color}
-                      strokeWidth="35"
-                      strokeDasharray={`${dashArray} ${circumference}`}
-                      strokeDashoffset={strokeDashoffset}
-                      fill="transparent"
-                    />
-                  );
-                })}
-              </G>
-            </Svg>
-          </View>
+        <View style={styles.donutRow}>
+          <Legend items={finalData} />
+          <PieChart
+            style={{ height: 200, width: 200 }}
+            data={finalData.map((item, idx) => ({
+              key: idx,
+              value: item.count,
+              svg: { fill: COLORS[idx % COLORS.length] },
+              arc: { outerRadius: '100%', innerRadius: '40%' },
+            }))}
+            padAngle={0}
+          />
         </View>
       </View>
     );
   };
 
+  // ===== 스택 바 차트 (도시 Top4 + 기타, 각 도시 동물도 Top4 + 기타) =====
   const StackedBarChart = () => {
-    const bottom = 0.105;
-    const data = [
-      { region: '전라도', animals: { 고라니: 10, 너구리: 30, 여우: 50 } },
-      { region: '서울', animals: { 고라니: 65, 너구리: 25, 여우: 15 } },
-      { region: '충청도', animals: { 고라니: 70, 너구리: 20, 여우: 30 } },
-      { region: '강원도', animals: { 고라니: 50, 너구리: 30, 여우: 20 } },
-      { region: '인천', animals: { 고라니: 60, 너구리: 55, 여우: 15 } },
-      { region: '경기', animals: { 고라니: 70, 너구리: 20, 여우: 10 } },
-    ];
+    const [data, setData] = useState<any[]>([]);
 
-    const animalColors = {
-      고라니: '#C3AB72',
-      너구리: '#FFF3D5',
-      여우: '#FEBA15',
-    } as const;
+    useEffect(() => {
+      const fetchData = async () => {
+        try {
+          const token = await AsyncStorage.getItem('accessToken');
+          if (!token) return;
 
-    const maxTotal = Math.max(
-      ...data.map(d => Object.values(d.animals).reduce((sum, v) => sum + v, 0)),
-    );
+          const res = await fetch(
+            'http://127.0.0.1:8000/api/reports/stats/region-by-animal',
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+            },
+          );
+
+          const json = await res.json();
+          setData(Array.isArray(json) ? json : []);
+        } catch (err) {
+          console.error(err);
+        }
+      };
+      fetchData();
+    }, []);
+
+    if (!data || data.length === 0) {
+      return <Text>데이터 없음</Text>;
+    }
+
+    // ✅ city 기준 그룹핑
+    const grouped = data.reduce((acc: any, cur: any) => {
+      const city = cur.city || '미상';
+      if (!acc[city]) acc[city] = {};
+      acc[city][cur.animal] = (acc[city][cur.animal] || 0) + cur.count;
+      return acc;
+    }, {});
+
+    // 도시별 총합
+    const cityTotals = Object.entries(grouped).map(([city, animals]) => ({
+      city,
+      total: Object.values(animals as number[]).reduce(
+        (a, b) => a + (b as number),
+        0,
+      ),
+    }));
+
+    // Top4 도시 + 기타
+    const sortedCities = cityTotals.sort((a, b) => b.total - a.total);
+    const top4Cities = sortedCities.slice(0, 4).map(c => c.city);
+    const otherCities = sortedCities.slice(4).map(c => c.city);
+
+    const cityData = top4Cities.map(city => {
+      const animals = grouped[city];
+
+      // 동물 Top4 + 기타
+      const sortedAnimals = Object.entries(animals).sort(
+        (a, b) => (b[1] as number) - (a[1] as number),
+      );
+      const top4Animals = sortedAnimals.slice(0, 4);
+      const otherAnimals = sortedAnimals.slice(4);
+      const etcSum = otherAnimals.reduce(
+        (sum, [, v]) => sum + (v as number),
+        0,
+      );
+
+      const finalAnimals =
+        etcSum > 0 ? [...top4Animals, ['기타', etcSum]] : top4Animals;
+
+      return { city, animals: Object.fromEntries(finalAnimals) };
+    });
+
+    // 기타 도시 묶기
+    if (otherCities.length > 0) {
+      const etcAnimals: Record<string, number> = {};
+      otherCities.forEach(city => {
+        const animals = grouped[city];
+        Object.entries(animals).forEach(([animal, cnt]) => {
+          etcAnimals[animal] = (etcAnimals[animal] || 0) + (cnt as number);
+        });
+      });
+
+      // 기타 도시 동물 Top4 + 기타
+      const sortedAnimals = Object.entries(etcAnimals).sort(
+        (a, b) => b[1] - a[1],
+      );
+      const top4Animals = sortedAnimals.slice(0, 4);
+      const otherAnimals = sortedAnimals.slice(4);
+      const etcSum = otherAnimals.reduce((sum, [, v]) => sum + v, 0);
+
+      const finalAnimals =
+        etcSum > 0 ? [...top4Animals, ['기타', etcSum]] : top4Animals;
+
+      cityData.push({
+        city: '기타',
+        animals: Object.fromEntries(finalAnimals),
+      });
+    }
+
+    // 전체 최대치 계산
+    const maxTotal =
+      cityData.length > 0
+        ? Math.max(
+            ...cityData.map(d =>
+              (Object.values(d.animals) as number[]).reduce(
+                (sum, v) => sum + v,
+                0,
+              ),
+            ),
+          )
+        : 1;
 
     return (
       <View style={styles.barChartSection}>
         <Text style={styles.sectionTitle}>지역별 신고 건수</Text>
         <View style={styles.barChartWrapper}>
+          {/* 그리드 라인 */}
           <View style={StyleSheet.absoluteFill}>
-            {[
-              bottom,
-              0.25 + bottom,
-              0.5 + bottom,
-              0.75 + bottom,
-              1 + bottom,
-            ].map((ratio, idx) => (
+            {[0.25, 0.5, 0.75, 1].map((ratio, idx) => (
               <View
                 key={idx}
                 style={[styles.gridLine, { bottom: `${ratio * 100}%` }]}
               />
             ))}
           </View>
+
+          {/* 바 차트 */}
           <View style={styles.barsContainer}>
-            {data.map((regionData, idx) => {
-              const total = Object.values(regionData.animals).reduce(
-                (sum, v) => sum + v,
-                0,
-              );
+            {cityData.map((cityData, idx) => {
+              const total = (
+                Object.values(cityData.animals) as number[]
+              ).reduce((sum, v) => sum + v, 0);
               const heightRatio = total / maxTotal;
               const barHeight = 200 * heightRatio;
+
               return (
                 <View key={idx} style={styles.barContainer}>
                   <View style={[styles.barStack, { height: barHeight }]}>
-                    {Object.entries(regionData.animals).map(
-                      ([animal, value], i) => (
-                        <View
-                          key={i}
-                          style={{
-                            height: (value / total) * barHeight,
-                            width: '100%',
-                            backgroundColor:
-                              animalColors[animal as keyof typeof animalColors],
-                          }}
-                        />
-                      ),
-                    )}
+                    {(
+                      Object.entries(cityData.animals) as [string, number][]
+                    ).map(([animal, value], i) => (
+                      <View
+                        key={i}
+                        style={{
+                          height: (value / total) * barHeight,
+                          width: '100%',
+                          backgroundColor: COLORS[i % COLORS.length],
+                        }}
+                      />
+                    ))}
                   </View>
-                  <Text style={styles.barLabel}>{regionData.region}</Text>
+                  <Text style={styles.barLabel}>{cityData.city}</Text>
                 </View>
               );
             })}
@@ -184,37 +336,70 @@ export default function Report() {
     );
   };
 
-  const RecordList = () => {
+  const RecordList = ({ appliedPeriod }: { appliedPeriod: string }) => {
     const [searchText, setSearchText] = useState('');
-    const records = [
-      {
-        id: 1,
-        animal: '고라니',
-        location: 'XX시 XX구',
-        date: '2024.05.15',
-        status: '확인중',
-        statusColor: '#666666',
-        image: require('../../assets/images/goat.png'),
-      },
-      {
-        id: 2,
-        animal: '너구리',
-        location: 'XX시 XX구',
-        date: '2024.04.02',
-        status: '보류',
-        statusColor: '#FEBA15',
-        image: require('../../assets/images/raccoon.png'),
-      },
-      {
-        id: 3,
-        animal: '멧돼지',
-        location: 'XX시 XX구',
-        date: '2024.03.01',
-        status: '처리 완료',
-        statusColor: '#DD0000',
-        image: require('../../assets/images/wild_boar.png'),
-      },
-    ];
+    const [records, setRecords] = useState<any[]>([]);
+    const [loading, setLoading] = useState(false);
+
+    const fetchReports = async () => {
+      try {
+        setLoading(true);
+        const token = await AsyncStorage.getItem('accessToken');
+        if (!token) {
+          console.error('[RecordList] No access token found');
+          return;
+        }
+
+        let url = 'http://127.0.0.1:8000/api/reports/';
+
+        const range = getDateRange(appliedPeriod);
+        if (range) {
+          url += `?from=${range.from}&to=${range.to}`;
+        }
+
+        const res = await fetch(url, {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const data = await res.json();
+        console.log('[API 응답]', data);
+
+        setRecords(
+          data.map((item: any) => ({
+            id: item.report_id,
+            animal: item.animal_name,
+            location: item.location?.address ?? '',
+            date: item.report_date.slice(0, 10),
+            status:
+              item.status === 'checking'
+                ? '확인중'
+                : item.status === 'on_hold'
+                ? '보류'
+                : '처리 완료',
+            statusColor:
+              item.status === 'checking'
+                ? '#666666'
+                : item.status === 'on_hold'
+                ? '#FEBA15'
+                : '#DD0000',
+            image:
+              animalImages[item.animal_name] ??
+              require('../../assets/images/default.png'),
+          })),
+        );
+      } catch (error) {
+        console.error('Failed to fetch reports:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    useEffect(() => {
+      fetchReports();
+    }, [appliedPeriod]);
 
     const filteredRecords = records.filter(
       record =>
@@ -240,8 +425,7 @@ export default function Report() {
             style={styles.dropdownButton}
             onPress={() => {
               console.log('[Report] 날짜 조회 버튼 눌림 → snapToIndex(1)');
-              bottomSheetRef.current?.snapToIndex(1); // 50%로 열기
-              // bottomSheetRef.current?.expand();    // 완전 확장으로 열고 싶으면 이걸 사용
+              bottomSheetRef.current?.snapToIndex(1);
             }}
           >
             <Text style={styles.dropdownButtonText}>{selectedPeriod}</Text>
@@ -249,32 +433,36 @@ export default function Report() {
           </TouchableOpacity>
         </View>
         <View style={styles.recordList}>
-          {filteredRecords.length > 0 ? (
-            filteredRecords.map(record => (
-              <View key={record.id} style={styles.recordItem}>
+          <FlatList
+            data={filteredRecords}
+            keyExtractor={item => String(item.id)}
+            renderItem={({ item }) => (
+              <View style={styles.recordItem}>
                 <View style={styles.recordImageContainer}>
-                  <Image source={record.image} style={styles.recordImage} />
+                  <Image source={item.image} style={styles.recordImage} />
                 </View>
                 <View style={styles.recordInfo}>
-                  <Text style={styles.recordAnimal}>{record.animal}</Text>
-                  <Text style={styles.recordLocation}>{record.location}</Text>
-                  <Text style={styles.recordDate}>{record.date}</Text>
+                  <Text style={styles.recordAnimal}>{item.animal}</Text>
+                  <Text style={styles.recordLocation}>{item.location}</Text>
+                  <Text style={styles.recordDate}>{item.date}</Text>
                 </View>
                 <View style={styles.recordStatus}>
                   <Text
                     style={[
                       styles.recordStatusText,
-                      { color: record.statusColor },
+                      { color: item.statusColor },
                     ]}
                   >
-                    {record.status}
+                    {item.status}
                   </Text>
                 </View>
               </View>
-            ))
-          ) : (
-            <Text style={styles.noResultsText}>검색 결과가 없습니다.</Text>
-          )}
+            )}
+            ListEmptyComponent={
+              <Text style={styles.noResultsText}>검색 결과가 없습니다.</Text>
+            }
+            contentContainerStyle={{ paddingBottom: 100 }}
+          />
         </View>
       </View>
     );
@@ -321,15 +509,14 @@ export default function Report() {
             <StackedBarChart />
           </>
         ) : (
-          <RecordList />
+          <RecordList appliedPeriod={appliedPeriod} />
         )}
       </View>
 
-      {/* Plain BottomSheet: 포털 없이 최상단에 겹치게 올림 */}
       <View pointerEvents="box-none" style={styles.overlayHost}>
         <BottomSheet
           ref={bottomSheetRef}
-          index={-1} // 초기 닫힘
+          index={-1}
           snapPoints={['35%']}
           enablePanDownToClose
           onChange={i => console.log('[Report] sheet index =', i)}
@@ -366,8 +553,8 @@ export default function Report() {
                     onPress={() => setSelectedPeriod(label as any)}
                     style={({ pressed }) => [
                       styles.chipBase,
-                      pressed && styles.chipPressed, // 터치 중일 때 아주 살짝 음영
-                      selected && styles.chipSelected, // 선택 상태
+                      pressed && styles.chipPressed,
+                      selected && styles.chipSelected,
                     ]}
                     android_ripple={{ color: '#0000000F', borderless: false }}
                   >
@@ -384,11 +571,13 @@ export default function Report() {
               })}
             </View>
 
-            {/* 액션 버튼들 */}
             <View style={styles.sheetActions}>
               <TouchableOpacity
                 style={styles.ghostButton}
-                onPress={() => setSelectedPeriod('날짜 조회')}
+                onPress={() => {
+                  setSelectedPeriod('날짜 조회');
+                  setAppliedPeriod('날짜 조회');
+                }}
               >
                 <Text style={styles.ghostButtonText}>재설정</Text>
               </TouchableOpacity>
@@ -397,31 +586,13 @@ export default function Report() {
                 style={styles.primaryButton}
                 onPress={() => {
                   console.log('조회하기:', selectedPeriod);
+                  setAppliedPeriod(selectedPeriod);
                   bottomSheetRef.current?.close();
                 }}
               >
                 <Text style={styles.primaryButtonText}>조회하기</Text>
               </TouchableOpacity>
             </View>
-
-            {/* 조회하기
-            <TouchableOpacity
-              style={{
-                marginTop: 30,
-                backgroundColor: '#FEBA15',
-                paddingVertical: 12,
-                borderRadius: 20,
-                alignItems: 'center',
-              }}
-              onPress={() => {
-                console.log('[Report] 조회하기:', selectedPeriod);
-                bottomSheetRef.current?.close();
-              }}
-            >
-              <Text style={{ fontWeight: 'bold', color: '#fff' }}>
-                조회하기
-              </Text>
-            </TouchableOpacity> */}
           </BottomSheetView>
         </BottomSheet>
       </View>
@@ -430,7 +601,6 @@ export default function Report() {
 }
 
 const styles = StyleSheet.create({
-  // 신고 통계
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
@@ -475,7 +645,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
     paddingTop: 20,
-    // overflow: 'hidden', // ← 가려질 수 있으니 주석 유지
   },
   chartSection: {
     marginBottom: 60,
@@ -486,13 +655,15 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     color: '#000000',
   },
-  donutContainer: {
+  donutRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
   },
   legendContainer: {
     flex: 1,
-    paddingLeft: 15,
+    paddingLeft: 10,
   },
   legendItem: {
     flexDirection: 'row',
@@ -503,11 +674,11 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    marginRight: 8,
+    marginRight: 6,
   },
   legendText: {
     fontSize: 14,
-    color: '#000000',
+    color: '#000',
   },
   chartContainer: {
     alignItems: 'center',
@@ -556,8 +727,6 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#ccc',
   },
-
-  // 기록 조회
   recordContainer: {
     flex: 1,
   },
@@ -565,7 +734,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   sheetHeader: {
-    alignItems: 'center', // 가로 가운데
+    alignItems: 'center',
     marginBottom: 12,
   },
   sheetTitle: {
@@ -724,8 +893,6 @@ const styles = StyleSheet.create({
     color: '#666666',
     marginTop: 50,
   },
-
-  // ⬇️ Plain BottomSheet를 최상단에 겹치게 올리기 위한 레이어
   overlayHost: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 9999,
@@ -737,32 +904,28 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 16,
   },
-
   chipBase: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#D2D2D2', // 연한 테두리
-    backgroundColor: '#FFFFFF', // 시트가 흰색이므로 투명과 동일한 톤
+    borderColor: '#D2D2D2',
+    backgroundColor: '#FFFFFF',
     marginRight: 8,
     marginBottom: 8,
   },
   chipPressed: {
     backgroundColor: '#D2D2D2',
   },
-
   chipSelected: {
     backgroundColor: '#D2D2D2',
     borderColor: '#D2D2D2',
   },
-
   chipText: {
     fontSize: 13,
     color: '#333',
     fontWeight: '600',
   },
-
   chipTextSelected: {
     color: '#222',
     fontWeight: '800',
@@ -773,7 +936,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
   },
-
   ghostButton: {
     flex: 1,
     height: 44,
@@ -786,7 +948,6 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   ghostButtonText: { color: '#8A8A8A', fontWeight: '600' },
-
   primaryButton: {
     flex: 1,
     height: 44,
