@@ -265,6 +265,23 @@ export default function Map() {
     [],
   );
 
+  // Kakao 주소 지오코딩 보조 함수
+  const geocodeAddress = async (address: string) => {
+    try {
+      const url = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(
+        address,
+      )}`;
+      const r = await fetch(url, {
+        headers: { Authorization: `KakaoAK ${KAKAO_REST_API_KEY}` },
+      });
+      const j = await r.json();
+      const doc = j?.documents?.[0];
+      if (!doc) return null;
+      return { lat: parseFloat(doc.y), lng: parseFloat(doc.x) };
+    } catch {
+      return null;
+    }
+  };
   // ====== 서버 동기화 유틸 ======
   const fetchServerPlaces = async (): Promise<PlaceItem[]> => {
     const res = await authFetch(`${BACKEND_URL}/saved-places/`, {
@@ -272,24 +289,37 @@ export default function Map() {
     });
     if (!res.ok) throw new Error(`fetch ${res.status}`);
     const rows = await res.json();
-    return rows.map(
-      (r: any): PlaceItem => ({
-        id: r.client_id || String(r.id),
+    const out: PlaceItem[] = [];
+    for (const r of rows) {
+      let lat: number | undefined = (r as any).lat; // 대부분 없음
+      let lng: number | undefined = (r as any).lng;
+
+      // 좌표가 없으면 주소로 지오코딩
+      if ((lat == null || lng == null) && r.location) {
+        const g = await geocodeAddress(r.location);
+        if (g) {
+          lat = g.lat;
+          lng = g.lng;
+        }
+      }
+
+      out.push({
+        id: String(r.id), // 서버에 client_id가 없으니 PK를 id로 사용
         remoteId: r.id,
-        type: r.type,
+        type: r.name, // ← name을 앱 내부 필드 type으로 사용
         location: r.location,
-        lat: Number(r.lat),
-        lng: Number(r.lng),
-      }),
-    );
+        lat: lat ?? 0, // 없으면 0(혹은 표기/마커 스킵 로직)
+        lng: lng ?? 0,
+      });
+    }
+    return out;
   };
 
   const pushPlaceToServer = async (place: PlaceItem) => {
     const body: any = {
       type: place.type,
+      name: place.type, // ← 서버 스키마에 맞춤
       location: place.location,
-      lat: place.lat,
-      lng: place.lng,
       client_id: place.id, // 서버 모델에 있으면 중복 방지에 유리
     };
     const res = await authFetch(`${BACKEND_URL}/saved-places/`, {

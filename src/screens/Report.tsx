@@ -154,7 +154,7 @@ export default function Report() {
           if (!token) return;
 
           const res = await fetch(
-            'http://127.0.0.1:8000/api/reports/stats/animal',
+            'http://127.0.0.1:8000/api/reports/stats/animal/',
             {
               headers: {
                 'Content-Type': 'application/json',
@@ -182,12 +182,24 @@ export default function Report() {
       );
     }
 
+    // 1) 개수 내림차순 정렬
     const sorted = [...data].sort((a, b) => b.count - a.count);
-    const top4 = sorted.slice(0, 4);
-    const others = sorted.slice(4);
-    const othersSum = others.reduce((sum, d) => sum + d.count, 0);
-    const finalData =
-      othersSum > 0 ? [...top4, { animal: '기타', count: othersSum }] : top4;
+    const etcItem = sorted.find(d => d.animal === '기타');
+    const nonEtc = sorted.filter(d => d.animal !== '기타');
+
+    let finalData: { animal: string; count: number }[];
+
+    if (etcItem) {
+      // 서버가 이미 '기타' 포함 → 실제 동물 Top4 + '기타' (항상 마지막)
+      finalData = [...nonEtc.slice(0, 4), etcItem];
+    } else {
+      // 서버에 '기타' 없음 → 실제 동물 Top4 + 합산 '기타'
+      const top4 = nonEtc.slice(0, 4);
+      const others = nonEtc.slice(4);
+      const othersSum = others.reduce((sum, d) => sum + d.count, 0);
+      finalData =
+        othersSum > 0 ? [...top4, { animal: '기타', count: othersSum }] : top4;
+    }
 
     return (
       <View style={styles.chartSection}>
@@ -209,18 +221,24 @@ export default function Report() {
     );
   };
 
-  // ===== 스택 바 차트 (도시 Top4 + 기타, 각 도시 동물도 Top4 + 기타) =====
-  const StackedBarChart = () => {
-    const [data, setData] = useState<any[]>([]);
+  // ===== 스택 바 차트(도시 × 동물) - 서버가 이미 Top4 도시 + '기타' 도시로 내려줌 =====
+  type Row = { city: string; animal: string; count: number };
+
+  const StackedBarChart: React.FC = () => {
+    const [data, setData] = useState<Row[]>([]);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-      const fetchData = async () => {
+      const run = async () => {
         try {
           const token = await AsyncStorage.getItem('accessToken');
-          if (!token) return;
+          if (!token) {
+            setData([]);
+            return;
+          }
 
           const res = await fetch(
-            'http://127.0.0.1:8000/api/reports/stats/region-by-animal',
+            'http://127.0.0.1:8000/api/reports/stats/region-by-animal/',
             {
               headers: {
                 'Content-Type': 'application/json',
@@ -228,105 +246,121 @@ export default function Report() {
               },
             },
           );
-
           const json = await res.json();
           setData(Array.isArray(json) ? json : []);
-        } catch (err) {
-          console.error(err);
+        } catch (e) {
+          console.warn('fetch region-by-animal error:', e);
+          setData([]);
+        } finally {
+          setLoading(false);
         }
       };
-      fetchData();
+      run();
     }, []);
 
-    if (!data || data.length === 0) {
-      return <Text>데이터 없음</Text>;
+    if (loading) {
+      return (
+        <View style={{ alignItems: 'center', padding: 20 }}>
+          <ActivityIndicator size="large" />
+        </View>
+      );
     }
+    if (!data || data.length === 0) return <Text>데이터 없음</Text>;
 
-    // ✅ city 기준 그룹핑
-    const grouped = data.reduce((acc: any, cur: any) => {
-      const city = cur.city || '미상';
-      if (!acc[city]) acc[city] = {};
-      acc[city][cur.animal] = (acc[city][cur.animal] || 0) + cur.count;
-      return acc;
-    }, {});
+    // 1) city → {animal: count}
+    const grouped: Record<string, Record<string, number>> = data.reduce(
+      (acc, cur) => {
+        const city = cur.city || '미상';
+        acc[city] = acc[city] || {};
+        acc[city][cur.animal] = (acc[city][cur.animal] || 0) + cur.count;
+        return acc;
+      },
+      {} as Record<string, Record<string, number>>,
+    );
 
-    // 도시별 총합
-    const cityTotals = Object.entries(grouped).map(([city, animals]) => ({
-      city,
-      total: Object.values(animals as number[]).reduce(
-        (a, b) => a + (b as number),
-        0,
-      ),
-    }));
+    const hasServerEtcCity = Object.prototype.hasOwnProperty.call(
+      grouped,
+      '기타',
+    );
 
-    // Top4 도시 + 기타
-    const sortedCities = cityTotals.sort((a, b) => b.total - a.total);
-    const top4Cities = sortedCities.slice(0, 4).map(c => c.city);
-    const otherCities = sortedCities.slice(4).map(c => c.city);
+    // 2) '기타' 도시는 Top4 선정에서 제외하고, 실제 도시만 집계
+    const realCityTotals = Object.entries(grouped)
+      .filter(([city]) => city !== '기타')
+      .map(([city, animals]) => ({
+        city,
+        total: Object.values(animals).reduce((a, b) => a + b, 0),
+      }))
+      .sort((a, b) => b.total - a.total);
 
-    const cityData = top4Cities.map(city => {
-      const animals = grouped[city];
+    const top4Cities = realCityTotals.slice(0, 4).map(c => c.city);
+    const otherCities = realCityTotals.slice(4).map(c => c.city);
 
-      // 동물 Top4 + 기타
-      const sortedAnimals = Object.entries(animals).sort(
-        (a, b) => (b[1] as number) - (a[1] as number),
-      );
-      const top4Animals = sortedAnimals.slice(0, 4);
-      const otherAnimals = sortedAnimals.slice(4);
-      const etcSum = otherAnimals.reduce(
-        (sum, [, v]) => sum + (v as number),
-        0,
-      );
+    // 동물 세그먼트를 Top4 + 기타로 만들되, '기타' 세그먼트가 존재하면 항상 마지막으로 이동
+    const makeAnimalSegments = (animals: Record<string, number>) => {
+      const entries = Object.entries(animals); // [animal, count][]
 
-      const finalAnimals =
-        etcSum > 0 ? [...top4Animals, ['기타', etcSum]] : top4Animals;
+      const etcSeg = entries.find(([a]) => a === '기타');
+      const nonEtc = entries
+        .filter(([a]) => a !== '기타')
+        .sort((a, b) => b[1] - a[1]);
 
-      return { city, animals: Object.fromEntries(finalAnimals) };
-    });
+      if (etcSeg) {
+        // 서버가 이미 도시 내 '기타' 세그먼트를 포함시킨 경우 → 실제 동물 Top4 + '기타'(마지막)
+        return [...nonEtc.slice(0, 4), etcSeg] as [string, number][];
+      } else {
+        // 서버가 '기타' 세그먼트를 안 준 경우 → 실제 동물 Top4 + 합산 '기타'
+        const top4 = nonEtc.slice(0, 4);
+        const others = nonEtc.slice(4);
+        const etcSum = others.reduce((sum, [, v]) => sum + v, 0);
+        return etcSum > 0
+          ? [...top4, ['기타', etcSum] as [string, number]]
+          : top4;
+      }
+    };
 
-    // 기타 도시 묶기
-    if (otherCities.length > 0) {
+    // 3) Top4 실제 도시의 바 데이터
+    const cityData: Array<{ city: string; animals: Record<string, number> }> =
+      top4Cities.map(city => {
+        const animals = grouped[city] || {};
+        const finalSegs = makeAnimalSegments(animals);
+        return { city, animals: Object.fromEntries(finalSegs) };
+      });
+
+    // 4) '기타' 도시 바 (항상 마지막)
+    if (hasServerEtcCity) {
+      // 서버가 '기타' 도시를 이미 제공 → 그 도시에 대해서도 동물 세그먼트를 Top4+기타로 정리
+      const etcAnimals = grouped['기타'] || {};
+      const finalSegs = makeAnimalSegments(etcAnimals);
+      cityData.push({ city: '기타', animals: Object.fromEntries(finalSegs) });
+    } else if (otherCities.length > 0) {
+      // 서버가 '기타' 도시를 안 줬다면, 나머지 도시들을 합산해서 '기타'로 묶어 생성
       const etcAnimals: Record<string, number> = {};
       otherCities.forEach(city => {
-        const animals = grouped[city];
+        const animals = grouped[city] || {};
         Object.entries(animals).forEach(([animal, cnt]) => {
-          etcAnimals[animal] = (etcAnimals[animal] || 0) + (cnt as number);
+          etcAnimals[animal] = (etcAnimals[animal] || 0) + cnt;
         });
       });
-
-      // 기타 도시 동물 Top4 + 기타
-      const sortedAnimals = Object.entries(etcAnimals).sort(
-        (a, b) => b[1] - a[1],
-      );
-      const top4Animals = sortedAnimals.slice(0, 4);
-      const otherAnimals = sortedAnimals.slice(4);
-      const etcSum = otherAnimals.reduce((sum, [, v]) => sum + v, 0);
-
-      const finalAnimals =
-        etcSum > 0 ? [...top4Animals, ['기타', etcSum]] : top4Animals;
-
-      cityData.push({
-        city: '기타',
-        animals: Object.fromEntries(finalAnimals),
-      });
+      const finalSegs = makeAnimalSegments(etcAnimals);
+      cityData.push({ city: '기타', animals: Object.fromEntries(finalSegs) });
     }
 
-    // 전체 최대치 계산
+    // 5) 최대 높이 (정규화)
+    const BAR_MAX_HEIGHT = 200;
     const maxTotal =
       cityData.length > 0
         ? Math.max(
             ...cityData.map(d =>
-              (Object.values(d.animals) as number[]).reduce(
-                (sum, v) => sum + v,
-                0,
-              ),
+              Object.values(d.animals).reduce((sum, v) => sum + v, 0),
             ),
           )
         : 1;
 
+    // 6) 렌더
     return (
       <View style={styles.barChartSection}>
         <Text style={styles.sectionTitle}>지역별 신고 건수</Text>
+
         <View style={styles.barChartWrapper}>
           {/* 그리드 라인 */}
           <View style={StyleSheet.absoluteFill}>
@@ -338,32 +372,40 @@ export default function Report() {
             ))}
           </View>
 
-          {/* 바 차트 */}
+          {/* 바들 */}
           <View style={styles.barsContainer}>
-            {cityData.map((cityData, idx) => {
-              const total = (
-                Object.values(cityData.animals) as number[]
-              ).reduce((sum, v) => sum + v, 0);
-              const heightRatio = total / maxTotal;
-              const barHeight = 200 * heightRatio;
+            {cityData.map((entry, idx) => {
+              const total = Object.values(entry.animals).reduce(
+                (s, v) => s + v,
+                0,
+              );
+              const heightRatio = total / maxTotal || 0;
+              const barHeight = Math.max(1, BAR_MAX_HEIGHT * heightRatio); // 최소 1px
+
+              const segments = Object.entries(entry.animals) as [
+                string,
+                number,
+              ][];
 
               return (
                 <View key={idx} style={styles.barContainer}>
                   <View style={[styles.barStack, { height: barHeight }]}>
-                    {(
-                      Object.entries(cityData.animals) as [string, number][]
-                    ).map(([animal, value], i) => (
-                      <View
-                        key={i}
-                        style={{
-                          height: (value / total) * barHeight,
-                          width: '100%',
-                          backgroundColor: COLORS[i % COLORS.length],
-                        }}
-                      />
-                    ))}
+                    {segments.map(([animal, value], i) => {
+                      const segHeight =
+                        total > 0 ? (value / total) * barHeight : 0;
+                      return (
+                        <View
+                          key={`${entry.city}-${animal}-${i}`}
+                          style={{
+                            height: segHeight,
+                            width: '100%',
+                            backgroundColor: COLORS[i % COLORS.length],
+                          }}
+                        />
+                      );
+                    })}
                   </View>
-                  <Text style={styles.barLabel}>{cityData.city}</Text>
+                  <Text style={styles.barLabel}>{entry.city}</Text>
                 </View>
               );
             })}
@@ -388,7 +430,6 @@ export default function Report() {
         }
 
         let url = 'http://127.0.0.1:8000/api/reports/';
-
         const range = getDateRange(appliedPeriod);
         if (range) {
           url += `?from=${range.from}&to=${range.to}`;
