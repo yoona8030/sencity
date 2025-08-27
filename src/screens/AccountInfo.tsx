@@ -16,7 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 
-const BACKEND_URL = 'http://127.0.0.1:8000/api';
+const BACKEND_URL = 'http://127.0.0.1:8000/api'; // 프로젝트에 맞게 조정
 
 type Profile = {
   name: string;
@@ -42,9 +42,9 @@ export default function AccountInfo() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // 비밀번호 변경(선택)
-  const [currentPwd, setCurrentPwd] = useState('');
-  const [newPwd, setNewPwd] = useState('');
+  // --- 비밀번호 변경 필드 (확인 입력 제거) ---
+  const [currentPwd, setCurrentPwd] = useState(''); // 변경
+  const [newPwd, setNewPwd] = useState(''); // 변경
 
   // 전화번호 포맷팅
   const formatPhone = (raw: string) => {
@@ -81,16 +81,19 @@ export default function AccountInfo() {
       return false;
     }
     if (!profile.consent_terms) {
+      // 추가: 이용약관 미동의 시 저장 불가
       Alert.alert('확인', '이용약관 동의가 필요합니다.');
       return false;
     }
     return true;
   };
 
+  // --- 비밀번호 검증 (현재/새 둘 중 하나라도 입력되면 둘 다 필수) ---
   const wantChangePassword = () =>
-    currentPwd.trim().length > 0 || newPwd.trim().length > 0;
+    currentPwd.trim().length > 0 || newPwd.trim().length > 0; // 변경
 
   const validatePassword = () => {
+    // 변경
     if (!wantChangePassword()) return true;
     if (!currentPwd.trim() || !newPwd.trim()) {
       Alert.alert(
@@ -110,39 +113,42 @@ export default function AccountInfo() {
     return true;
   };
 
-  // 토큰 기반 fetch (401이면 refresh 시도)
-  const authFetch = useCallback(async (input: any, init?: RequestInit) => {
-    const access = await AsyncStorage.getItem('accessToken');
-    const doFetch = async (token: string | null) =>
-      fetch(input, {
-        ...(init || {}),
-        headers: {
-          'Content-Type': 'application/json',
-          ...(init?.headers || {}),
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-    let res = await doFetch(access);
-    if (res.status === 401) {
-      const refresh = await AsyncStorage.getItem('refreshToken');
-      if (refresh) {
-        const r = await fetch(`${BACKEND_URL}/token/refresh/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh }),
+  // 토큰 기반 요청(401 시 refresh 재시도)
+  const authFetch = useCallback(
+    async (input: RequestInfo, init?: RequestInit) => {
+      const access = await AsyncStorage.getItem('accessToken');
+      const doFetch = async (token: string | null) =>
+        fetch(input, {
+          ...(init || {}),
+          headers: {
+            'Content-Type': 'application/json',
+            ...(init?.headers || {}),
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
         });
-        if (r.ok) {
-          const json = await r.json();
-          if (json.access) {
-            await AsyncStorage.setItem('accessToken', json.access);
-            res = await doFetch(json.access);
+
+      let res = await doFetch(access);
+      if (res.status === 401) {
+        const refresh = await AsyncStorage.getItem('refreshToken');
+        if (refresh) {
+          const r = await fetch(`${BACKEND_URL}/token/refresh/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh }),
+          });
+          if (r.ok) {
+            const json = await r.json();
+            if (json.access) {
+              await AsyncStorage.setItem('accessToken', json.access);
+              res = await doFetch(json.access);
+            }
           }
         }
       }
-    }
-    return res;
-  }, []);
+      return res;
+    },
+    [],
+  );
 
   // 프로필 조회
   const loadProfile = useCallback(async () => {
@@ -154,10 +160,10 @@ export default function AccountInfo() {
       setProfile({
         name: data.name ?? data.first_name ?? '',
         email: data.email ?? '',
-        address: data.user_address ?? data.address ?? '',
-        phone: data.telphone ? formatPhone(String(data.telphone)) : '',
-        consent_marketing: !!(data.consent_marketing ?? data.marketing),
-        consent_terms: !!(data.agree ?? data.consent_terms),
+        address: data.address ?? '',
+        phone: data.phone ? formatPhone(String(data.phone)) : '',
+        consent_marketing: !!data.consent_marketing,
+        consent_terms: !!data.consent_terms,
         consent_location: !!data.consent_location,
       });
     } catch (e) {
@@ -174,29 +180,24 @@ export default function AccountInfo() {
 
     setSaving(true);
     try {
+      // 1) 프로필 저장
       const payload = {
         name: profile.name.trim(),
         first_name: profile.name.trim(),
         email: profile.email.trim(),
-        user_address: profile.address.trim(),
-        address: profile.address.trim(),
-        telphone: profile.phone ? profile.phone.replace(/\D/g, '') : '',
-        agree: profile.consent_terms,
-        consent_terms: profile.consent_terms,
+        user_address: profile.address.trim(), // ← 주소
+        address: profile.address.trim(), // ← 별칭도 같이(무해)
+        telphone: profile.phone.replace(/\D/g, ''), // ← 숫자만
+        phone: profile.phone.replace(/\D/g, ''), // ← 별칭도 같이(무해)
+        agree: profile.consent_terms, // ← 약관동의
+        consent_terms: profile.consent_terms, // ← 별칭도 같이(무해)
         consent_location: profile.consent_location,
         consent_marketing: profile.consent_marketing,
       };
-
       await authFetch(`${BACKEND_URL}/user/profile/`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
       });
-
-      const res = await authFetch(`${BACKEND_URL}/user/profile/`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error(`save ${res.status}`);
 
       // 2) 비밀번호 변경 (선택)
       if (wantChangePassword()) {
@@ -223,8 +224,8 @@ export default function AccountInfo() {
       }
 
       Alert.alert('완료', '변경사항이 저장되었습니다.');
-      setCurrentPwd('');
-      setNewPwd('');
+      setCurrentPwd(''); // 추가
+      setNewPwd(''); // 추가
     } catch (e: any) {
       Alert.alert(
         '오류',
@@ -250,13 +251,14 @@ export default function AccountInfo() {
     );
   }
 
-  const canSave = profile.consent_terms && !saving;
+  // 추가: 저장 가능 여부(이용약관 동의 ON & 저장중 아님)
+  const canSave = profile.consent_terms && !saving; // 추가
 
   return (
     <View style={styles.container}>
-      {/* 헤더 */}
+      {/* 헤더: 제목 가운데, X는 오른쪽 고정 */}
       <View style={styles.headerRow}>
-        <Text style={styles.headerTitle}>사용자 정보</Text>
+        <Text style={styles.headerTitle}>개인 정보</Text>
         <TouchableOpacity
           style={styles.headerCloseBtn}
           onPress={() => navigation.goBack()}
@@ -265,7 +267,6 @@ export default function AccountInfo() {
           <Ionicons name="close" size={24} color="#000" />
         </TouchableOpacity>
       </View>
-
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.field}>
           <Text style={styles.label}>이름</Text>
@@ -380,10 +381,10 @@ export default function AccountInfo() {
         <TouchableOpacity
           style={[
             styles.saveBtn,
-            canSave ? styles.saveBtnEnabled : styles.saveBtnDisabled,
+            canSave ? styles.saveBtnEnabled : styles.saveBtnDisabled, // 추가
           ]}
           onPress={saveProfile}
-          disabled={!canSave}
+          disabled={!canSave} // 추가
         >
           {saving ? (
             <ActivityIndicator color="#fff" />
@@ -398,12 +399,11 @@ export default function AccountInfo() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-
   headerRow: {
     position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'center', // 제목을 화면 중앙에
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 8,
@@ -420,14 +420,11 @@ const styles = StyleSheet.create({
     top: 12,
     padding: 4,
   },
-
   content: { padding: 20, paddingBottom: 40 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#000' },
-
   field: { marginTop: 14 },
   label: { fontSize: 13, color: '#333', marginBottom: 6, fontWeight: '600' },
-
   input: {
     borderWidth: 1,
     borderColor: '#E0E0E0',
@@ -435,16 +432,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: Platform.OS === 'ios' ? 12 : 0,
     height: 48,
-    lineHeight: 20,
+    lineHeight: 20, // ← 고정 (fontSize 대비 20~22 추천)
     fontWeight: '400',
     fontSize: 16,
     color: '#222',
     backgroundColor: '#FFF',
-    textAlignVertical: 'center',
-    includeFontPadding: false,
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+    textAlignVertical: 'center', // ← 세로 정렬 고정
+    includeFontPadding: false, // ← 안드로이드 폰트 내부패딩 제거
+    // 폰트 패밀리 고정(디바이스별 폴백 차이 방지)
+    fontFamily: Platform.select({ ios: 'System', android: 'sans-serif' }),
   },
-
   switchRow: {
     marginTop: 14,
     flexDirection: 'row',
@@ -452,7 +449,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   switchLabel: { fontSize: 16, color: '#000' },
-
   saveBtn: {
     marginTop: 28,
     height: 48,
@@ -460,7 +456,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  saveBtnEnabled: { backgroundColor: '#F5C64D' },
-  saveBtnDisabled: { backgroundColor: '#CFCFCF' },
+  saveBtnEnabled: { backgroundColor: '#F5C64D' }, // 노란색 (활성)
+  saveBtnDisabled: { backgroundColor: '#CFCFCF' }, // 회색 (비활성)
   saveBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
 });

@@ -21,9 +21,18 @@ import BottomSheet, {
   BottomSheetBackdrop,
   BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet';
+import {
+  useRoute,
+  useFocusEffect,
+  useNavigation,
+} from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PieChart, BarChart, Grid, XAxis } from 'react-native-svg-charts';
 import { animalImages } from '../utils/animalImages';
+import type { RouteProp } from '@react-navigation/native';
+import type { TabParamList } from '../navigation/TabNavigator';
+
+type ReportTab = 'stats' | 'history'; // 신고 통계 / 기록 조회
 
 function getDateRange(period: string) {
   const today = new Date();
@@ -63,6 +72,34 @@ export default function Report() {
 
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['25%', '50%'], []);
+
+  const route = useRoute<RouteProp<TabParamList, 'Report'>>();
+  const navigation = useNavigation();
+  const focusParam = route.params?.focus; // 'history' | undefined
+  const trigger = route.params?._t; // number | undefined (재트리거용)
+
+  // ✅ params가 바뀌면 기록 조회로 전환
+  useEffect(() => {
+    if (focusParam === 'history') {
+      setActiveTab('기록 조회');
+    }
+  }, [focusParam, trigger]);
+
+  // ✅ 화면에 다시 포커스될 때도 한 번 더 보정
+  useFocusEffect(
+    useCallback(() => {
+      if (focusParam === 'history') {
+        setActiveTab('기록 조회');
+      }
+    }, [focusParam, trigger]),
+  );
+
+  // (선택) 한 번 소비했으면 비워서 다음에도 안정적으로 재작동
+  useEffect(() => {
+    if (focusParam) {
+      navigation.setParams({ focus: undefined, _t: undefined } as any);
+    }
+  }, [activeTab]);
 
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
@@ -367,12 +404,15 @@ export default function Report() {
         const data = await res.json();
         console.log('[API 응답]', data);
 
+        // data가 배열인지, 객체인지 확인 후 records 설정
+        const list = Array.isArray(data) ? data : data.results ?? [];
+
         setRecords(
-          data.map((item: any) => ({
+          list.map((item: any) => ({
             id: item.report_id,
             animal: item.animal_name,
             location: item.location?.address ?? '',
-            date: item.report_date.slice(0, 10),
+            date: item.report_date?.slice(0, 10) ?? '',
             status:
               item.status === 'checking'
                 ? '확인중'
@@ -390,10 +430,8 @@ export default function Report() {
               require('../../assets/images/default.png'),
           })),
         );
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to fetch reports:', error);
-      } finally {
-        setLoading(false);
       }
     };
 
@@ -517,7 +555,7 @@ export default function Report() {
         <BottomSheet
           ref={bottomSheetRef}
           index={-1}
-          snapPoints={['35%']}
+          snapPoints={['40%']}
           enablePanDownToClose
           onChange={i => console.log('[Report] sheet index =', i)}
           backdropComponent={renderBackdrop}
@@ -533,7 +571,7 @@ export default function Report() {
             borderRadius: 2,
           }}
         >
-          <BottomSheetView style={{ padding: 20 }}>
+          <BottomSheetView style={{ padding: 10 }}>
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>날짜 조회</Text>
             </View>
@@ -607,15 +645,15 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 35,
-    paddingBottom: 10,
+    paddingTop: 25,
+    paddingBottom: 0,
     backgroundColor: '#FFFFFF',
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     textAlign: 'center',
-    marginTop: 5,
+    marginTop: 1,
     marginBottom: 15,
     color: '#000000',
   },
@@ -691,7 +729,7 @@ const styles = StyleSheet.create({
     height: 200,
     position: 'relative',
     paddingHorizontal: 20,
-    marginTop: 40,
+    marginTop: 25,
   },
   barsContainer: {
     flexDirection: 'row',
@@ -753,7 +791,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F4E1',
     borderRadius: 15,
     paddingHorizontal: 15,
-    paddingVertical: 12,
+    paddingVertical: 10,
     fontSize: 16,
     color: '#7B7B7B',
   },
@@ -763,7 +801,7 @@ const styles = StyleSheet.create({
   filterTitle: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 10,
+    marginBottom: 8,
     color: '#000000',
   },
   dropdownContainer: {
@@ -834,7 +872,7 @@ const styles = StyleSheet.create({
   recordItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: 10,
     paddingHorizontal: 15,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,

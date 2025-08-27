@@ -4,7 +4,7 @@ import { View, Text, StyleSheet } from 'react-native';
 export default function Home() {
   return (
     <View style={styles.container}>
-      <Text>홈 화면</Text>
+      <Text>카메라 화면</Text>
     </View>
   );
 }

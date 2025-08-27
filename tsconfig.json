@@ -1,4 +1,4 @@
 {
   "extends": "@react-native/typescript-config",
-  "include": ["src", "declarations.d.ts"]
+  "include": ["src", "declarations.d.ts", "env.d.ts"]
 }

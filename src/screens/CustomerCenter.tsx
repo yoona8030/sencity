@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 0,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
     minHeight: 48,
@@ -124,6 +124,7 @@ const styles = StyleSheet.create({
   deerIconLarge: {
     width: 50,
     height: 50,
+    marginBottom: 3,
     resizeMode: 'contain',
   },
   headerTitle: {

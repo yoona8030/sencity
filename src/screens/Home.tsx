@@ -1,5 +1,8 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import {
   View,
   Text,
@@ -10,23 +13,54 @@ import {
   FlatList,
   Dimensions,
   NativeSyntheticEvent,
+  StatusBar,
+  Platform,
   // ScrollView,
   NativeScrollEvent,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { KAKAO_JS_KEY } from '@env';
 import { WebView } from 'react-native-webview';
-import { useNavigation } from '@react-navigation/native';
+import {
+  useRoute,
+  useNavigation,
+  useFocusEffect,
+} from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { RouteProp } from '@react-navigation/native';
 import type { TabParamList } from '../navigation/TabNavigator';
 
+type ReportTab = 'stats' | 'history';
+
 export default function Home() {
+  const insets = useSafeAreaInsets();
+  const TOP_SHAVE = 8; // 4~10 사이에서 취향대로 조절
+  const topPadding = Math.max(insets.top - TOP_SHAVE, 0);
   // 1초마다 갱신되는 시계
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  const route = useRoute<RouteProp<TabParamList, 'Report'>>();
+  const focus = route.params?.focus; // 'history' | undefined
+  const [tab, setTab] = useState<'overview' | 'history'>('overview');
+
+  const focusParam = route.params?.focus; // 'history' | undefined
+  const trigger = route.params?._t; // number | undefined
+
+  useEffect(() => {
+    if (focusParam === 'history') {
+      setTab('history');
+    }
+  }, [focusParam, trigger]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (focusParam === 'history') setTab('history');
+    }, [focusParam, trigger]),
+  );
 
   const dateString = `${now.getFullYear()}년 ${String(
     now.getMonth() + 1,
@@ -66,6 +100,10 @@ export default function Home() {
   };
 
   const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
+  const goReport = () => navigation.navigate('Report'); // Report 탭으로 이동
+  const goReportHistory = () =>
+    navigation.navigate('Report', { focus: 'history', _t: Date.now() }); // ← 포커스+트리거
+
   const kakaoMapHtml = `
     <!DOCTYPE html><html><head>
       <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0"/>
@@ -84,97 +122,127 @@ export default function Home() {
   `;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Image
-            source={require('../../assets/images/logo.png')}
-            style={styles.logo}
-          />
-          <View style={styles.headerText}>
-            <Text style={styles.appName}>SENCITY</Text>
-            <Text style={styles.date}>{dateString}</Text>
-            <Text style={styles.time}>{timeString}</Text>
+    <>
+      <StatusBar
+        translucent
+        backgroundColor="transparent"
+        barStyle="dark-content"
+      />
+      <SafeAreaView
+        // top은 직접 처리하므로 제외
+        edges={['left', 'right', 'bottom']}
+        style={[styles.safeArea, { paddingTop: topPadding }]}
+      >
+        <View style={styles.container}>
+          <View style={styles.header}>
+            <Image
+              source={require('../../assets/images/logo.png')}
+              style={styles.logo}
+            />
+            <View style={styles.headerText}>
+              <Text style={styles.appName}>SENCITY</Text>
+              <Text style={styles.date}>{dateString}</Text>
+              <Text style={styles.time}>{timeString}</Text>
+            </View>
           </View>
-        </View>
 
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statTitle}>총 신고 수</Text>
-            <Text style={styles.statValue}>16건</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statTitle}>가장 많이 신고한 동물</Text>
-            <Text style={styles.statValue}>고라니</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statTitle}>마지막 신고일</Text>
-            <Text style={styles.statValue}>2025.04.20</Text>
-          </View>
-        </View>
-
-        <FlatList
-          data={newsList}
-          keyExtractor={item => item.id}
-          horizontal
-          decelerationRate="fast"
-          showsHorizontalScrollIndicator={false}
-          snapToInterval={SNAP_INTERVAL}
-          snapToAlignment="start"
-          onMomentumScrollEnd={onScrollEnd}
-          contentContainerStyle={{ paddingHorizontal: H_PADDING }}
-          style={{ marginBottom: 0 }}
-          renderItem={({ item }) => (
+          <View style={styles.statsRow}>
             <TouchableOpacity
-              style={[
-                styles.newsCard,
-                { width: CARD_WIDTH, height: CARD_HEIGHT, marginRight: 16 },
-              ]}
-              onPress={() => Linking.openURL(item.url)}
+              style={styles.statCard}
+              onPress={goReport}
+              activeOpacity={0.8}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Text style={styles.statTitle}>총 신고 수</Text>
+              <Text style={styles.statValue}>16건</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.statCard}
+              onPress={goReport}
+              activeOpacity={0.8}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Text style={styles.statTitle}>가장 많이 신고한 동물</Text>
+              <Text style={styles.statValue}>고라니</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.statCard}
+              onPress={goReportHistory}
               activeOpacity={0.8}
             >
-              <Image source={item.image} style={styles.newsImage} />
-              <TouchableOpacity style={styles.expandBtn}>
-                <Icon name="expand" size={24} color="#fff" />
-              </TouchableOpacity>
-              <Text style={styles.newsOverlayText}>{item.title}</Text>
+              <Text style={styles.statTitle}>마지막 신고일</Text>
+              <Text style={styles.statValue}>2025.04.20</Text>
             </TouchableOpacity>
-          )}
-        />
+          </View>
 
-        {/* Pagination Dots */}
-        <View style={styles.dotsAbsolute}>
-          {newsList.map((_, i) => (
-            <View
-              key={i}
-              style={[
-                styles.dot,
-                i === activeIndex ? styles.activeDot : styles.inactiveDot,
-              ]}
+          <FlatList
+            data={newsList}
+            keyExtractor={item => item.id}
+            horizontal
+            decelerationRate="fast"
+            showsHorizontalScrollIndicator={false}
+            snapToInterval={SNAP_INTERVAL}
+            snapToAlignment="start"
+            onMomentumScrollEnd={onScrollEnd}
+            contentContainerStyle={{ paddingHorizontal: H_PADDING }}
+            style={{ marginBottom: 0 }}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[
+                  styles.newsCard,
+                  { width: CARD_WIDTH, height: CARD_HEIGHT, marginRight: 16 },
+                ]}
+                onPress={() => Linking.openURL(item.url)}
+                activeOpacity={0.8}
+              >
+                <Image source={item.image} style={styles.newsImage} />
+                <TouchableOpacity style={styles.expandBtn}>
+                  <Icon name="expand" size={24} color="#fff" />
+                </TouchableOpacity>
+                <Text style={styles.newsOverlayText}>{item.title}</Text>
+              </TouchableOpacity>
+            )}
+          />
+
+          {/* Pagination Dots */}
+          <View style={styles.dotsAbsolute}>
+            {newsList.map((_, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.dot,
+                  i === activeIndex ? styles.activeDot : styles.inactiveDot,
+                ]}
+              />
+            ))}
+          </View>
+          <View style={styles.mapSection}>
+            <WebView
+              originWhitelist={['*']}
+              source={{ html: kakaoMapHtml }}
+              style={styles.webview}
+              javaScriptEnabled
+              domStorageEnabled
             />
-          ))}
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate('Map')}
+            />
+          </View>
         </View>
-        <View style={styles.mapSection}>
-          <WebView
-            originWhitelist={['*']}
-            source={{ html: kakaoMapHtml }}
-            style={styles.webview}
-            javaScriptEnabled
-            domStorageEnabled
-          />
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            activeOpacity={0.8}
-            onPress={() => navigation.navigate('Map')}
-          />
-        </View>
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#fff' },
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
 
   container: {
     flex: 1,
@@ -188,7 +256,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 5, // 위/아래 여백 감소
+    paddingVertical: 0, // 위/아래 여백 감소
     marginBottom: 10, // 카드와 간격 소폭 축소
   },
   logo: {
@@ -205,12 +273,12 @@ const styles = StyleSheet.create({
     color: '#00000',
   },
   date: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#00000',
     marginTop: 2,
   },
   time: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#00000',
     marginTop: 2,
   },
@@ -234,6 +302,8 @@ const styles = StyleSheet.create({
   statTitle: {
     fontSize: 12,
     fontWeight: '600',
+    textAlign: 'center',
+    textAlignVertical: 'center',
   },
   statValue: {
     fontSize: 15,
@@ -268,7 +338,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
   },
-
   newsOverlayText: {
     position: 'absolute',
     bottom: 8,
@@ -281,7 +350,6 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: 4,
   },
-
   dotsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -297,12 +365,13 @@ const styles = StyleSheet.create({
   inactiveDot: { backgroundColor: 'rgba(255,255,255,0.5)' },
 
   mapSection: {
-    height: 290,
+    height: 330,
     // flex: 1,
     marginHorizontal: 16,
     borderRadius: 12,
     overflow: 'hidden',
     marginTop: 0,
+    marginBottom: 5,
   },
   webview: {
     ...StyleSheet.absoluteFillObject,

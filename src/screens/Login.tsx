@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   TextInput,
@@ -33,7 +33,6 @@ export default function Login({ navigation, route }: Props) {
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [isChecked, setIsChecked] = useState<boolean>(false);
-
   // 1. 실서버 연동 로그인 함수
   const handleLogin = async () => {
     if (!email || !password) {
@@ -269,10 +268,14 @@ export default function Login({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
+  // overlay: {
+  //   ...StyleSheet.absoluteFillObject,
+  //   backgroundColor: 'rgba(255,0,0,0.2)', // 임시
+  // },
   container: {
     flex: 1,
     padding: 20,
-    paddingTop: 10,
+    paddingTop: 0,
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
