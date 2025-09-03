@@ -15,7 +15,7 @@ export type TabParamList = {
   Camera: undefined;
   Map: undefined;
   Mypage: undefined;
-  Report: { focus?: 'history'; _t?: number } | undefined; // ← 추가
+  Report: { focus?: 'stats' | 'history'; _t?: number } | undefined;
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();

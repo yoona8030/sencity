@@ -44,7 +44,7 @@ export default function Login({ navigation, route }: Props) {
       const cleanedEmail = email.trim().toLowerCase();
       const cleanedPassword = password.trim();
       // 애뮬레이터
-      // const response = await fetch('http://10.0.2.2:8000/api/login/', {
+      // const response = await fetch('http://172.18.35.178/api/login/', {
       // 실제 기기
       const response = await fetch('http://127.0.0.1:8000/api/login/', {
         method: 'POST',
@@ -301,7 +301,7 @@ const styles = StyleSheet.create({
   },
   label: {
     marginBottom: 5,
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: '600',
     color: '#000000',
   },

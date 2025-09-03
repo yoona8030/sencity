@@ -65,7 +65,7 @@ const SignUp: React.FC<Props> = ({ navigation }) => {
 
     try {
       console.log('전송 전 agree 값:', agree, typeof agree);
-      // const response = await fetch('http://10.0.2.2:8000/api/signup/', {
+      // const response = await fetch('http://172.18.35.178/api/signup/', {
       const response = await fetch('http://127.0.0.1:8000/api/signup/', {
         method: 'POST',
         headers: {
@@ -118,8 +118,6 @@ const SignUp: React.FC<Props> = ({ navigation }) => {
     try {
       // 실제 기기
       const response = await fetch('http://127.0.0.1:8000/api/signup/', {
-        // 애뮬레이터
-        // const response = await fetch('http://10.0.2.2:8000/api/signup/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),

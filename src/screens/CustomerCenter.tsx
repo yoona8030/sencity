@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
-    minHeight: 48,
+    minHeight: 40,
   },
   leftHeader: {
     flexDirection: 'row',

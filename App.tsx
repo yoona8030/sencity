@@ -7,14 +7,15 @@ import { enableScreens } from 'react-native-screens';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import RNBootSplash from 'react-native-bootsplash';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import RootNavigator from './src/navigation/RootNavigator';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-// ★ AuthContext import 추가
+import RootNavigator, {
+  RootStackParamList,
+} from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 
 enableScreens();
@@ -25,27 +26,41 @@ type CustomSystemUIModule = {
 const CustomSystemUI: CustomSystemUIModule | undefined = (NativeModules as any)
   ?.CustomSystemUI;
 
-// 상단만 안전영역 적용
+// 상단만 안전영역 적용 (앱 배경: 흰색)
 function TopOnlySafeArea({ children }: { children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: 0 }}>
+    <View
+      style={{
+        flex: 1,
+        paddingTop: insets.top,
+        paddingBottom: 0,
+        backgroundColor: '#FFFFFF',
+      }}
+    >
       {children}
     </View>
   );
 }
 
+// 내비 배경도 흰색
 const navTheme = {
   ...DefaultTheme,
-  colors: { ...DefaultTheme.colors, background: 'transparent' },
+  colors: { ...DefaultTheme.colors, background: '#FFFFFF' },
 };
 
 export default function App() {
-  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [isReady, setIsReady] = useState(false);
+  const [initialRouteName, setInitialRouteName] =
+    useState<keyof RootStackParamList>('Login');
 
+  // 시스템 UI 세팅
   useEffect(() => {
     CustomSystemUI?.enableStickyHideNavKeepStatus?.();
     StatusBar.setHidden(false);
+    StatusBar.setTranslucent(false);
+    StatusBar.setBackgroundColor('#FFFFFF'); // 앱 화면은 흰 배경
+    StatusBar.setBarStyle('dark-content'); // 검정 아이콘
   }, []);
 
   useEffect(() => {
@@ -53,34 +68,43 @@ export default function App() {
       if (s === 'active') {
         CustomSystemUI?.enableStickyHideNavKeepStatus?.();
         StatusBar.setHidden(false);
+        StatusBar.setTranslucent(false);
+        StatusBar.setBackgroundColor('#FFFFFF');
+        StatusBar.setBarStyle('dark-content');
       }
     });
     return () => sub.remove();
   }, []);
 
+  // 토큰 읽어 초기 라우트 결정 + fail-safe
   useEffect(() => {
+    const failSafe = setTimeout(() => RNBootSplash.hide({ fade: true }), 2500);
     (async () => {
-      const token = await AsyncStorage.getItem('accessToken');
-      console.log('[App.tsx] 불러온 토큰:', token);
-      setAccessToken(token);
+      try {
+        const token = await AsyncStorage.getItem('accessToken');
+        setInitialRouteName(token ? 'MainTabs' : 'Login');
+      } catch {
+        setInitialRouteName('Login');
+      } finally {
+        setIsReady(true);
+      }
     })();
+    return () => clearTimeout(failSafe);
   }, []);
 
+  if (!isReady) return null; // 스플래시 떠 있는 동안 JS는 렌더 안 함
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <SafeAreaProvider>
         <BottomSheetModalProvider>
-          <StatusBar
-            hidden={false}
-            translucent
-            backgroundColor="transparent"
-            barStyle="dark-content"
-          />
           <TopOnlySafeArea>
-            {/* ★ 여기서 전체를 AuthProvider로 감싸줌 */}
             <AuthProvider>
-              <NavigationContainer theme={navTheme}>
-                <RootNavigator accessToken={accessToken} />
+              <NavigationContainer
+                theme={navTheme}
+                onReady={() => RNBootSplash.hide({ fade: true })}
+              >
+                <RootNavigator initialRouteName={initialRouteName} />
               </NavigationContainer>
             </AuthProvider>
           </TopOnlySafeArea>

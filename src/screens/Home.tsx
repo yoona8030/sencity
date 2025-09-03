@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -14,53 +14,26 @@ import {
   Dimensions,
   NativeSyntheticEvent,
   StatusBar,
-  Platform,
-  // ScrollView,
   NativeScrollEvent,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { KAKAO_JS_KEY } from '@env';
 import { WebView } from 'react-native-webview';
-import {
-  useRoute,
-  useNavigation,
-  useFocusEffect,
-} from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import type { RouteProp } from '@react-navigation/native';
 import type { TabParamList } from '../navigation/TabNavigator';
-
-type ReportTab = 'stats' | 'history';
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const TOP_SHAVE = 8; // 4~10 사이에서 취향대로 조절
+  const TOP_SHAVE = 8;
   const topPadding = Math.max(insets.top - TOP_SHAVE, 0);
-  // 1초마다 갱신되는 시계
+
+  // 시계
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-
-  const route = useRoute<RouteProp<TabParamList, 'Report'>>();
-  const focus = route.params?.focus; // 'history' | undefined
-  const [tab, setTab] = useState<'overview' | 'history'>('overview');
-
-  const focusParam = route.params?.focus; // 'history' | undefined
-  const trigger = route.params?._t; // number | undefined
-
-  useEffect(() => {
-    if (focusParam === 'history') {
-      setTab('history');
-    }
-  }, [focusParam, trigger]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (focusParam === 'history') setTab('history');
-    }, [focusParam, trigger]),
-  );
 
   const dateString = `${now.getFullYear()}년 ${String(
     now.getMonth() + 1,
@@ -100,9 +73,13 @@ export default function Home() {
   };
 
   const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
-  const goReport = () => navigation.navigate('Report'); // Report 탭으로 이동
+
+  // ✅ 항상 focus를 명시해서 보냄
+  const goReportStats = () =>
+    navigation.navigate('Report', { focus: 'stats', _t: Date.now() });
+
   const goReportHistory = () =>
-    navigation.navigate('Report', { focus: 'history', _t: Date.now() }); // ← 포커스+트리거
+    navigation.navigate('Report', { focus: 'history', _t: Date.now() });
 
   const kakaoMapHtml = `
     <!DOCTYPE html><html><head>
@@ -129,7 +106,6 @@ export default function Home() {
         barStyle="dark-content"
       />
       <SafeAreaView
-        // top은 직접 처리하므로 제외
         edges={['left', 'right', 'bottom']}
         style={[styles.safeArea, { paddingTop: topPadding }]}
       >
@@ -146,10 +122,11 @@ export default function Home() {
             </View>
           </View>
 
+          {/* ⬇ 노란 카드들 */}
           <View style={styles.statsRow}>
             <TouchableOpacity
               style={styles.statCard}
-              onPress={goReport}
+              onPress={goReportStats}
               activeOpacity={0.8}
               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
@@ -159,7 +136,7 @@ export default function Home() {
 
             <TouchableOpacity
               style={styles.statCard}
-              onPress={goReport}
+              onPress={goReportStats}
               activeOpacity={0.8}
               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
@@ -218,6 +195,7 @@ export default function Home() {
               />
             ))}
           </View>
+
           <View style={styles.mapSection}>
             <WebView
               originWhitelist={['*']}
@@ -239,49 +217,25 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-
+  safeArea: { flex: 1, backgroundColor: '#fff' },
   container: {
     flex: 1,
     backgroundColor: '#fff',
-    justifyContent: 'flex-start', // 화면 상단부터 차게
+    justifyContent: 'flex-start',
     paddingBottom: 0,
   },
-
-  // 1. Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 0, // 위/아래 여백 감소
-    marginBottom: 10, // 카드와 간격 소폭 축소
+    paddingVertical: 0,
+    marginBottom: 10,
   },
-  logo: {
-    width: 100,
-    height: 90,
-    resizeMode: 'contain',
-  },
-  headerText: {
-    marginLeft: 12,
-  },
-  appName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#00000',
-  },
-  date: {
-    fontSize: 14,
-    color: '#00000',
-    marginTop: 2,
-  },
-  time: {
-    fontSize: 14,
-    color: '#00000',
-    marginTop: 2,
-  },
+  logo: { width: 100, height: 90, resizeMode: 'contain' },
+  headerText: { marginLeft: 12 },
+  appName: { fontSize: 20, fontWeight: 'bold', color: '#00000' },
+  date: { fontSize: 14, color: '#00000', marginTop: 2 },
+  time: { fontSize: 14, color: '#00000', marginTop: 2 },
 
   statsRow: {
     flexDirection: 'row',
@@ -305,19 +259,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     textAlignVertical: 'center',
   },
-  statValue: {
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
-  newsCard: {
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  newsImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
+  statValue: { fontSize: 15, fontWeight: 'bold' },
+
+  newsCard: { borderRadius: 12, overflow: 'hidden' },
+  newsImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   expandBtn: {
     position: 'absolute',
     top: 8,
@@ -326,13 +271,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 4,
   },
-  carouselWrap: {
-    position: 'relative',
-    marginBottom: 2, // ← 지도와의 간격 최소화 (원하면 0~8 사이로 조절)
-  },
+
   dotsAbsolute: {
     position: 'absolute',
-    bottom: 8, // 도트를 카드 하단 쪽으로 붙임
+    bottom: 8,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -350,30 +292,17 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: 4,
   },
-  dotsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 0,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginHorizontal: 4,
-  },
+  dot: { width: 8, height: 8, borderRadius: 4, marginHorizontal: 4 },
   activeDot: { backgroundColor: '#fff' },
   inactiveDot: { backgroundColor: 'rgba(255,255,255,0.5)' },
 
   mapSection: {
     height: 330,
-    // flex: 1,
     marginHorizontal: 16,
     borderRadius: 12,
     overflow: 'hidden',
     marginTop: 0,
     marginBottom: 5,
   },
-  webview: {
-    ...StyleSheet.absoluteFillObject,
-  },
+  webview: { ...StyleSheet.absoluteFillObject },
 });

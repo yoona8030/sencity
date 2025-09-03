@@ -43,23 +43,25 @@ interface SearchHistoryItem {
 interface AnimalInfo {
   name: string;
   english: string;
-  image_url: string;
-  features: string[];
-  precautions: string[];
+  image_url?: string;
+  image?: string;
+  imageUrl?: string;
+  features: string[] | string | null;
+  precautions: string[] | string | null;
+  proxied_image_url?: string;
 }
 interface PlaceItem {
-  id: string; // 클라이언트 고유 id (카카오 place.id 등)
-  remoteId?: number; // 서버에 저장된 row PK
-  type: string;
-  location: string;
+  id: string; // 클라이언트 고유 id (client_id)
+  remoteId?: number; // 서버 PK
+  type: string; // 표시 이름 (서버 name)
+  location: string; // 주소 문자열
   lat: number;
   lng: number;
 }
 
 const windowHeight = Dimensions.get('window').height;
 const windowWidth = Dimensions.get('window').width;
-// const BACKEND_URL = 'http://10.0.2.2:8000/api'; // 안드로이드 에뮬레이터
-const BACKEND_URL = 'http://127.0.0.1:8000/api'; // 실제 기기/아이폰 시뮬이면 로컬 네트워크 IP 권장
+const BACKEND_URL = 'http://127.0.0.1:8000/api'; // 실제 기기+reverse 기준
 
 const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
 <!DOCTYPE html>
@@ -84,7 +86,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
       };
       window.map = new kakao.maps.Map(mapContainer, mapOption);
 
-      // --- 동그라미 2겹 마커 이미지 유틸 ---
       function circleSvgDataURL(d, ring, ringColor, fillColor) {
         var r = d / 2;
         var svg =
@@ -98,12 +99,11 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         var size = new kakao.maps.Size(d, d);
         return new kakao.maps.MarkerImage(src, size, { offset: new kakao.maps.Point(d/2, d/2) });
       }
-      
+
       window._savedMarkers = {};
       window._tempMarkers = {};
       window._savedVisible = true;
 
-      // 저장 마커 전체 세팅
       window.setSavedMarkers = function (places) {
         try { if (typeof places === 'string') places = JSON.parse(places); } catch (e) {}
         for (var id in window._savedMarkers) {
@@ -119,7 +119,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         });
       };
 
-      // 저장 마커 가시성 토글
       window.setSavedMarkersVisible = function (visible) {
         window._savedVisible = !!visible;
         for (var id in window._savedMarkers) {
@@ -128,7 +127,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         }
       };
 
-      // 저장 마커 1개 추가
       window.addSavedMarker = function (place) {
         try { if (typeof place === 'string') place = JSON.parse(place); } catch (e) {}
         if (!place) return;
@@ -138,7 +136,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         window._savedMarkers[place.id] = marker;
       };
 
-      // id로 포커스(저장/임시 모두)
       window.focusMarker = function (id) {
         var m = window._savedMarkers[id] || window._tempMarkers[id];
         if (!m) return false;
@@ -185,7 +182,7 @@ async function refreshAccessToken() {
   const refreshToken = await AsyncStorage.getItem('refreshToken');
   if (!refreshToken) throw new Error('No refresh token');
 
-  const res = await fetch(`${BACKEND_URL}/token/refresh/`, {
+  const res = await fetch(`${BACKEND_URL}/auth/jwt/refresh/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh: refreshToken }),
@@ -202,7 +199,6 @@ export default function Map() {
   const bottomSheetRef = useRef<BottomSheet>(null);
   const COMPACT_HEIGHT = 130;
   const snapPoints = React.useMemo(() => ['35%', '50%', '80%'], []);
-  // 로컬 저장 키
   const SAVED_PLACES_KEY = '@savedPlaces.v1';
 
   const animatedPosition = useSharedValue(0);
@@ -215,6 +211,28 @@ export default function Map() {
   const [history, setHistory] = useState<SearchHistoryItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [animalInfo, setAnimalInfo] = useState<AnimalInfo | null>(null);
+  const [animalImgUri, setAnimalImgUri] = useState<string | undefined>(
+    undefined,
+  );
+
+  const candidate =
+    animalInfo?.proxied_image_url ||
+    animalInfo?.image_url ||
+    animalInfo?.image ||
+    animalInfo?.imageUrl ||
+    '';
+
+  const isProxied = candidate.includes('/image-proxy/');
+  const computedUri = candidate
+    ? isProxied
+      ? candidate
+      : `${BACKEND_URL}/image-proxy/?url=${encodeURIComponent(candidate)}`
+    : '';
+
+  useEffect(() => {
+    setAnimalImgUri(computedUri || undefined);
+  }, [computedUri]);
+
   const [placeToSave, setPlaceToSave] = useState<PlaceItem | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [savedPlaces, setSavedPlaces] = useState<PlaceItem[]>([]);
@@ -237,7 +255,6 @@ export default function Map() {
   );
   const [saveModalVisible, setSaveModalVisible] = useState<boolean>(false);
 
-  // ====== authFetch (401 → refresh 재시도) ======
   const authFetch = React.useCallback(
     async (input: any, init?: RequestInit) => {
       const access = await AsyncStorage.getItem('accessToken');
@@ -256,16 +273,14 @@ export default function Map() {
         try {
           const newAccess = await refreshAccessToken();
           res = await doFetch(newAccess);
-        } catch {
-          // refresh 실패 시 그냥 401 반환
-        }
+        } catch {}
       }
       return res;
     },
     [],
   );
 
-  // Kakao 주소 지오코딩 보조 함수
+  // Kakao 주소 지오코딩
   const geocodeAddress = async (address: string) => {
     try {
       const url = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(
@@ -282,21 +297,25 @@ export default function Map() {
       return null;
     }
   };
-  // ====== 서버 동기화 유틸 ======
+
+  // ===== 서버 동기화 =====
   const fetchServerPlaces = async (): Promise<PlaceItem[]> => {
     const res = await authFetch(`${BACKEND_URL}/saved-places/`, {
       method: 'GET',
     });
     if (!res.ok) throw new Error(`fetch ${res.status}`);
     const rows = await res.json();
+
     const out: PlaceItem[] = [];
     for (const r of rows) {
-      let lat: number | undefined = (r as any).lat; // 대부분 없음
-      let lng: number | undefined = (r as any).lng;
+      // 서버 응답 필드 (SavedPlaceReadSerializer):
+      // id, type, client_id, created_at, address, region, city, district, latitude, longitude
+      let lat: number | undefined = r.latitude;
+      let lng: number | undefined = r.longitude;
 
-      // 좌표가 없으면 주소로 지오코딩
-      if ((lat == null || lng == null) && r.location) {
-        const g = await geocodeAddress(r.location);
+      // 좌표가 비어있다면 보조로 지오코딩
+      if ((lat == null || lng == null) && r.address) {
+        const g = await geocodeAddress(r.address);
         if (g) {
           lat = g.lat;
           lng = g.lng;
@@ -304,11 +323,11 @@ export default function Map() {
       }
 
       out.push({
-        id: String(r.id), // 서버에 client_id가 없으니 PK를 id로 사용
+        id: r.client_id ? String(r.client_id) : `srv-${r.id}`,
         remoteId: r.id,
-        type: r.name, // ← name을 앱 내부 필드 type으로 사용
-        location: r.location,
-        lat: lat ?? 0, // 없으면 0(혹은 표기/마커 스킵 로직)
+        type: r.type, // 서버의 name 별칭
+        location: r.address ?? '',
+        lat: lat ?? 0,
         lng: lng ?? 0,
       });
     }
@@ -316,19 +335,29 @@ export default function Map() {
   };
 
   const pushPlaceToServer = async (place: PlaceItem) => {
-    const body: any = {
-      type: place.type,
-      name: place.type, // ← 서버 스키마에 맞춤
-      location: place.location,
-      client_id: place.id, // 서버 모델에 있으면 중복 방지에 유리
+    // 주소 문자열 + 좌표(숫자) + type + client_id 전송
+    const body = {
+      location: String(place.location || '').trim(), // 주소 문자열
+      latitude: Number(place.lat), // 숫자
+      longitude: Number(place.lng), // 숫자
+      type: String(place.type || place.location || '장소'), // 별칭(name 대체)
+      client_id: String(place.id), // 클라 고유 id
     };
+
+    // 디버깅용: 실제 전송 바디 확인
+    console.log('[saved-places POST body]', body);
+
     const res = await authFetch(`${BACKEND_URL}/saved-places/`, {
       method: 'POST',
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`post ${res.status}`);
-    const saved = await res.json();
-    // 서버 PK 덮어쓰기
+    const raw = await res.text();
+    if (!res.ok) {
+      console.log('[saved-places POST fail]', res.status, raw);
+      throw new Error(`post ${res.status}: ${raw}`);
+    }
+
+    const saved = JSON.parse(raw);
     setSavedPlaces(prev =>
       prev.map(p => (p.id === place.id ? { ...p, remoteId: saved.id } : p)),
     );
@@ -342,34 +371,31 @@ export default function Map() {
 
   const syncWithServer = async () => {
     try {
-      // 1) 로컬에 있는데 서버에 없는 것 업로드
+      // 1) 로컬에 있고 서버에 없는 것 업로드
       const unsynced = savedPlaces.filter(p => !p.remoteId);
       for (const p of unsynced) {
         await pushPlaceToServer(p);
       }
-      // 2) 서버 최신 목록과 머지(클라 id 기준)
+      // 2) 서버 최신 목록과 병합 (클라이언트 id 기준)
       const mergedById = new globalThis.Map<string, PlaceItem>();
-      const serverList: PlaceItem[] = await fetchServerPlaces(); // 서버에서 받아오는 리스트 타입 명시
-      serverList.forEach((s: PlaceItem) => mergedById.set(s.id, s)); // 병합 로직에서 타입 힌트
-      savedPlaces.forEach((l: PlaceItem) => {
+      const serverList: PlaceItem[] = await fetchServerPlaces();
+      serverList.forEach(s => mergedById.set(s.id, s));
+      savedPlaces.forEach(l => {
         if (!mergedById.has(l.id)) mergedById.set(l.id, l);
       });
-      const merged: PlaceItem[] = Array.from(mergedById.values()); // Array.from 의 unknown[] 방지
+      const merged: PlaceItem[] = Array.from(mergedById.values());
       setSavedPlaces(merged);
     } catch (e) {
       console.warn('syncWithServer error:', e);
     }
   };
 
-  // ====== 로컬 저장 불러오기 / 저장하기 ======
+  // ===== 로컬 로드 / 저장 =====
   useEffect(() => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(SAVED_PLACES_KEY);
-        if (raw) {
-          const parsed: PlaceItem[] = JSON.parse(raw);
-          setSavedPlaces(parsed);
-        }
+        if (raw) setSavedPlaces(JSON.parse(raw));
       } catch (e) {
         console.warn('load savedPlaces error', e);
       }
@@ -377,14 +403,13 @@ export default function Map() {
   }, []);
 
   useEffect(() => {
-    // 로컬에 즉시 반영 + 지도 마커 동기화
     AsyncStorage.setItem(SAVED_PLACES_KEY, JSON.stringify(savedPlaces)).catch(
       () => {},
     );
     syncSavedMarkers(savedPlaces);
   }, [savedPlaces]);
 
-  // ====== 토큰 로드 및 로그인 이후 동기화 ======
+  // ===== 토큰 로드 및 로그인 이후 동기화 =====
   useEffect(() => {
     const loadToken = async () => {
       const token = await AsyncStorage.getItem('accessToken');
@@ -394,13 +419,10 @@ export default function Map() {
   }, []);
 
   useEffect(() => {
-    if (accessToken) {
-      // 로그인 됐다면 서버와 2-way 동기화
-      syncWithServer();
-    }
+    if (accessToken) syncWithServer();
   }, [accessToken]);
 
-  // ====== 나머지 기존 로직 ======
+  // ===== 지도 포커싱 로직 =====
   useEffect(() => {
     if (selectedPlace) {
       setMapHtml(getKakaoMapHtml(selectedPlace.lat, selectedPlace.lng));
@@ -447,7 +469,7 @@ export default function Map() {
         },
         body: JSON.stringify({ keyword }),
       });
-    } catch (e) {}
+    } catch {}
   }
 
   const handleDeletePlace = (place: PlaceItem) => {
@@ -457,7 +479,6 @@ export default function Map() {
         text: '삭제',
         style: 'destructive',
         onPress: async () => {
-          // 1) 서버 삭제(있다면)
           if (place.remoteId) {
             try {
               await deletePlaceRemote(place.remoteId);
@@ -465,7 +486,6 @@ export default function Map() {
               console.warn(e);
             }
           }
-          // 2) 로컬 삭제
           setSavedPlaces(prev => prev.filter(p => p.id !== place.id));
         },
       },
@@ -499,12 +519,16 @@ export default function Map() {
       if (!res.ok) throw new Error('기록 조회 실패');
       const data: SearchHistoryItem[] = await res.json();
       setHistory(data);
-    } catch (e) {
+    } catch {
       setHistory([]);
     }
   }
 
   async function handleSearch(keyword: string) {
+    const raw = keyword.trim();
+    if (!raw) return;
+
+    const lowered = raw.toLowerCase();
     const animalList = [
       '고라니',
       '멧돼지',
@@ -518,35 +542,90 @@ export default function Map() {
       '왜가리',
       '중대백로',
     ];
-    const trimmed = keyword.trim().toLowerCase();
-    const isAnimal = animalList.some(a => a.toLowerCase() === trimmed);
-    if (!trimmed) return;
+    const isAnimal = animalList.some(a => a.toLowerCase() === lowered);
 
-    await saveSearchKeyword(trimmed);
+    await saveSearchKeyword(raw);
     Keyboard.dismiss();
-    if (isAnimal) {
-      await searchAnimal(trimmed);
+
+    if (isAnimal && (await searchAnimal(raw))) {
       setTab('정보');
-    } else {
-      await searchPlace(trimmed);
-      setTab('장소');
+      return;
     }
+    if (await searchAnimalLoose(raw)) {
+      setTab('정보');
+      return;
+    }
+    await searchPlace(raw);
+    setTab('장소');
+  }
+
+  function toArray(v: unknown): string[] {
+    if (Array.isArray(v)) {
+      return (v as unknown[])
+        .map(String)
+        .map(s => s.replace(/^[•\-\*]\s*/, '').trim())
+        .filter(Boolean);
+    }
+    if (typeof v === 'string') {
+      return v
+        .split(/\r?\n|,/)
+        .map(s => s.replace(/^[•\-\*]\s*/, '').trim())
+        .filter(Boolean);
+    }
+    return [];
   }
 
   async function searchAnimal(keyword: string) {
     try {
-      const infoRes = await fetch(
-        `${BACKEND_URL}/animal-info?name=${encodeURIComponent(keyword)}`,
+      const r = await fetch(
+        `${BACKEND_URL}/animal-info/?name=${encodeURIComponent(keyword)}`,
       );
-      const infoData = await infoRes.json();
-      if (!infoRes.ok || !infoData.name) throw new Error('정보 없음');
-      setAnimalInfo(infoData);
+      const j = await r.json();
+      if (!r.ok || !j?.name) return false;
+
+      const rawImg =
+        j.proxied_image_url || j.image_url || j.image || j.imageUrl || '';
+      setAnimalInfo({
+        ...j,
+        image_url: rawImg,
+        features: toArray(j.features),
+        precautions: toArray(j.precautions),
+      });
       setDropdownOpen(false);
       setSelectedId(null);
       bottomSheetRef.current?.snapToIndex(0);
-    } catch (e) {
-      Alert.alert('검색 실패', '검색 결과를 불러오지 못했습니다.');
-      setAnimalInfo(null);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function searchAnimalLoose(q: string) {
+    try {
+      const r = await fetch(
+        `${BACKEND_URL}/animals/search/?q=${encodeURIComponent(q)}`,
+      );
+      if (!r.ok) return false;
+      const list = await r.json();
+      if (!Array.isArray(list) || list.length === 0) return false;
+
+      const a = list[0];
+      const rawImg =
+        a.proxied_image_url || a.image_url || a.image || a.imageUrl || '';
+      setAnimalInfo({
+        name: a.name_kor,
+        english: a.name_eng,
+        image_url: rawImg,
+        features: toArray(a.features),
+        precautions: toArray(a.precautions),
+        proxied_image_url: a.proxied_image_url,
+      });
+      setDropdownOpen(false);
+      setSelectedId(null);
+      bottomSheetRef.current?.snapToIndex(0);
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -584,7 +663,7 @@ export default function Map() {
       mapRef.current?.injectJavaScript(jsCode);
 
       setSearchResultPlace({
-        id: place.id,
+        id: String(place.id),
         type: place.place_name,
         location: place.address_name,
         lat,
@@ -603,13 +682,13 @@ export default function Map() {
     if (!searchResultPlace) return;
     const p = searchResultPlace;
 
-    // 로컬 추가
+    // 1) 로컬 추가
     setSavedPlaces(prev => {
       if (prev.find(sp => sp.id === p.id)) return prev;
       return [...prev, p];
     });
 
-    // 서버에도 즉시 업로드(로그인 상태라면)
+    // 2) 서버 업로드(로그인 시)
     (async () => {
       const token = await AsyncStorage.getItem('accessToken');
       if (token) {
@@ -625,7 +704,6 @@ export default function Map() {
     setSearchResultPlace(null);
     Alert.alert('저장 완료', '장소가 저장되었습니다.');
 
-    // 저장 마커가 보이는 상태에서만 즉시 주입/포커스
     if (savedVisible) {
       const js = `
         (function(){
@@ -666,7 +744,7 @@ export default function Map() {
       if (!res.ok) throw new Error(`삭제 실패: ${res.status}`);
       await fetchHistory();
       if (selectedId === id) setSelectedId(null);
-    } catch (e) {
+    } catch {
       Alert.alert('삭제 실패', '검색 기록 삭제 중 오류가 발생했습니다.');
     }
   };
@@ -682,9 +760,7 @@ export default function Map() {
         const { latitude, longitude } = position.coords;
         setCurrentLocation({ lat: latitude, lng: longitude });
       },
-      error => {
-        Alert.alert('오류', '현재 위치를 가져올 수 없습니다.');
-      },
+      () => Alert.alert('오류', '현재 위치를 가져올 수 없습니다.'),
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
     );
   }
@@ -708,7 +784,6 @@ export default function Map() {
             cacheEnabled={false}
             cacheMode="LOAD_NO_CACHE"
             onLoadEnd={() => {
-              // WebView가 준비되면 현재 savedPlaces를 마커로 반영
               syncSavedMarkers(savedPlaces);
             }}
             onError={({ nativeEvent }) => {
@@ -884,7 +959,6 @@ export default function Map() {
           </TouchableOpacity>
         </View>
 
-        {/* (예시) 상단 배너 */}
         <Animated.View style={[bannerAnimatedStyle]}>
           <View style={styles.banner}>
             <Text style={styles.bannerText} numberOfLines={1}>
@@ -970,7 +1044,6 @@ export default function Map() {
                             </View>
                           </View>
 
-                          {/* 삭제 버튼 */}
                           <TouchableOpacity
                             onPress={() => handleDeletePlace(item)}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -992,17 +1065,37 @@ export default function Map() {
                     <Text style={styles.animalSubtitle}>
                       {animalInfo.english}
                     </Text>
-                    <Image
-                      source={{ uri: animalInfo.image_url }}
-                      style={styles.animalImage}
-                      resizeMode="cover"
-                    />
+                    {animalImgUri ? (
+                      <Image
+                        source={{ uri: animalImgUri }}
+                        style={styles.animalImage}
+                        resizeMode="cover"
+                        onError={() => {
+                          if (
+                            animalImgUri.includes('/image-proxy/') &&
+                            candidate
+                          ) {
+                            setAnimalImgUri(candidate);
+                          } else {
+                            setAnimalImgUri(undefined);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.animalImage,
+                          { alignItems: 'center', justifyContent: 'center' },
+                        ]}
+                      >
+                        <Text style={{ color: '#999' }}>
+                          이미지를 불러올 수 없습니다.
+                        </Text>
+                      </View>
+                    )}
                     <Text style={styles.animalSectionTitle}>특징</Text>
                     <View style={{ marginLeft: 8, marginBottom: 12 }}>
-                      {(Array.isArray(animalInfo.features)
-                        ? animalInfo.features
-                        : []
-                      ).map((txt: string, i: number) => (
+                      {toArray(animalInfo.features).map((txt, i) => (
                         <Text key={i} style={styles.animalFeature}>
                           • {txt}
                         </Text>
@@ -1010,10 +1103,7 @@ export default function Map() {
                     </View>
                     <Text style={styles.animalSectionTitle}>대처법</Text>
                     <View style={{ marginLeft: 8 }}>
-                      {(Array.isArray(animalInfo.precautions)
-                        ? animalInfo.precautions
-                        : []
-                      ).map((txt: string, i: number) => (
+                      {toArray(animalInfo?.precautions).map((txt, i) => (
                         <Text key={i} style={styles.animalPrecaution}>
                           • {txt}
                         </Text>
@@ -1044,14 +1134,8 @@ const STATUSBAR_HEIGHT =
   Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f4f1ea',
-  },
-  mapWrapper: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
-  },
+  container: { flex: 1, backgroundColor: '#f4f1ea' },
+  mapWrapper: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
   dropdownBackdrop: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 20,
@@ -1112,7 +1196,6 @@ const styles = StyleSheet.create({
   dropdownItemActive: { backgroundColor: '#faf7e9' },
   dropdownText: { fontSize: 17, color: '#444', fontWeight: 'bold' },
 
-  // 모달 공통
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.35)',
@@ -1166,7 +1249,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
-  // 버튼들
   btn: {
     minWidth: 78,
     height: 40,

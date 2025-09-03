@@ -32,7 +32,7 @@ import { animalImages } from '../utils/animalImages';
 import type { RouteProp } from '@react-navigation/native';
 import type { TabParamList } from '../navigation/TabNavigator';
 
-type ReportTab = 'stats' | 'history'; // 신고 통계 / 기록 조회
+type TabLabel = 'stats' | 'history'; // '신고 통계' | '기록 조회'
 
 function getDateRange(period: string) {
   const today = new Date();
@@ -88,10 +88,11 @@ export default function Report() {
   // ✅ 화면에 다시 포커스될 때도 한 번 더 보정
   useFocusEffect(
     useCallback(() => {
-      if (focusParam === 'history') {
-        setActiveTab('기록 조회');
-      }
-    }, [focusParam, trigger]),
+      const f = route.params?.focus; // 'stats' | 'history' | undefined
+      if (f === 'stats') setActiveTab('신고 통계');
+      else if (f === 'history') setActiveTab('기록 조회');
+      // setParams는 불필요하므로 호출하지 않습니다.
+    }, [route.params?.focus, route.params?._t]),
   );
 
   // (선택) 한 번 소비했으면 비워서 다음에도 안정적으로 재작동
@@ -239,6 +240,7 @@ export default function Report() {
 
           const res = await fetch(
             'http://127.0.0.1:8000/api/reports/stats/region-by-animal/',
+            // 'http://172.18.35.178/api/reports/stats/region-by-animal/',
             {
               headers: {
                 'Content-Type': 'application/json',
@@ -429,6 +431,7 @@ export default function Report() {
           return;
         }
 
+        // let url = 'http://172.18.35.178/api/reports/';
         let url = 'http://127.0.0.1:8000/api/reports/';
         const range = getDateRange(appliedPeriod);
         if (range) {

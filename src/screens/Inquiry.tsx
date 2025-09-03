@@ -17,6 +17,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 
 const BACKEND_URL = 'http://127.0.0.1:8000/api';
+// const BACKEND_URL = 'http://172.18.35.178/api';
 
 type Profile = {
   name: string;

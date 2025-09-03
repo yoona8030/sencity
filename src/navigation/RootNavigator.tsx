@@ -1,6 +1,6 @@
-// src/navigation/RootNavigator.tsx
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+
 import Login from '../screens/Login';
 import SignUp from '../screens/SignUp';
 import TabNavigator from './TabNavigator';
@@ -23,18 +23,15 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-type Props = { accessToken: string | null };
+type Props = { initialRouteName?: keyof RootStackParamList };
 
-export default function RootNavigator({ accessToken }: Props) {
+export default function RootNavigator({ initialRouteName = 'Login' }: Props) {
   return (
     <Stack.Navigator
-      // 로그인 연동 원하시면 주석 해제
-      // initialRouteName={accessToken ? 'MainTabs' : 'Login'}
-      initialRouteName="Login"
+      initialRouteName={initialRouteName}
       screenOptions={{
         headerShown: false,
-        // ✅ 하단 흰 배경이 비치지 않도록 스택 씬 배경도 투명
-        contentStyle: { backgroundColor: 'transparent' },
+        contentStyle: { backgroundColor: '#FFFFFF' }, // <- 흰색
       }}
     >
       <Stack.Screen name="Login" component={Login} />
