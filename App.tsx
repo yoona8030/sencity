@@ -1,3 +1,4 @@
+// App.tsx
 import 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import React, { useEffect, useState } from 'react';
@@ -8,6 +9,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNBootSplash from 'react-native-bootsplash';
+import { AppAlertProvider } from './src/components/AppAlertProvider';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -49,6 +51,10 @@ const navTheme = {
   colors: { ...DefaultTheme.colors, background: '#FFFFFF' },
 };
 
+// 문자열 토큰 정규화: "null"/"undefined"/공백은 무효
+const isValidToken = (v?: string | null) =>
+  !!(v && v.trim() !== '' && v !== 'null' && v !== 'undefined');
+
 export default function App() {
   const [isReady, setIsReady] = useState(false);
   const [initialRouteName, setInitialRouteName] =
@@ -76,13 +82,39 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
-  // 토큰 읽어 초기 라우트 결정 + fail-safe
+  // 토큰 읽어 초기 라우트 결정(+ 레거시 키 정리) + fail-safe
   useEffect(() => {
     const failSafe = setTimeout(() => RNBootSplash.hide({ fade: true }), 2500);
     (async () => {
       try {
-        const token = await AsyncStorage.getItem('accessToken');
-        setInitialRouteName(token ? 'MainTabs' : 'Login');
+        // 1) 레거시/임시 키 1회 정리(선택이지만 권장)
+        await AsyncStorage.multiRemove([
+          'userToken',
+          'token',
+          'jwt',
+          'atk',
+          'rtk',
+        ]);
+
+        // 2) 현재 사용하는 토큰만 엄격히 검사
+        const [atk, rtk] = await AsyncStorage.multiGet([
+          'accessToken',
+          'refreshToken',
+        ]);
+        const hasAccess = isValidToken(atk?.[1]);
+        const hasRefresh = isValidToken(rtk?.[1]);
+        const signedIn = hasAccess || hasRefresh;
+
+        if (__DEV__) {
+          // eslint-disable-next-line no-console
+          console.log('[AuthCheck]', {
+            accessToken: atk?.[1],
+            refreshToken: rtk?.[1],
+            signedIn,
+          });
+        }
+
+        setInitialRouteName(signedIn ? 'MainTabs' : 'Login');
       } catch {
         setInitialRouteName('Login');
       } finally {
@@ -100,12 +132,14 @@ export default function App() {
         <BottomSheetModalProvider>
           <TopOnlySafeArea>
             <AuthProvider>
-              <NavigationContainer
-                theme={navTheme}
-                onReady={() => RNBootSplash.hide({ fade: true })}
-              >
-                <RootNavigator initialRouteName={initialRouteName} />
-              </NavigationContainer>
+              <AppAlertProvider>
+                <NavigationContainer
+                  theme={navTheme}
+                  onReady={() => RNBootSplash.hide({ fade: true })}
+                >
+                  <RootNavigator initialRouteName={initialRouteName} />
+                </NavigationContainer>
+              </AppAlertProvider>
             </AuthProvider>
           </TopOnlySafeArea>
         </BottomSheetModalProvider>

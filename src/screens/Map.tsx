@@ -53,7 +53,7 @@ interface AnimalInfo {
 interface PlaceItem {
   id: string; // 클라이언트 고유 id (client_id)
   remoteId?: number; // 서버 PK
-  type: string; // 표시 이름 (서버 name)
+  name: string; // 표시 이름 (서버 name)
   location: string; // 주소 문자열
   lat: number;
   lng: number;
@@ -325,7 +325,7 @@ export default function Map() {
       out.push({
         id: r.client_id ? String(r.client_id) : `srv-${r.id}`,
         remoteId: r.id,
-        type: r.type, // 서버의 name 별칭
+        name: r.name, // 서버의 name 별칭
         location: r.address ?? '',
         lat: lat ?? 0,
         lng: lng ?? 0,
@@ -335,12 +335,13 @@ export default function Map() {
   };
 
   const pushPlaceToServer = async (place: PlaceItem) => {
+    const safeName = derivePlaceName(place);
     // 주소 문자열 + 좌표(숫자) + type + client_id 전송
     const body = {
       location: String(place.location || '').trim(), // 주소 문자열
       latitude: Number(place.lat), // 숫자
       longitude: Number(place.lng), // 숫자
-      type: String(place.type || place.location || '장소'), // 별칭(name 대체)
+      name: String(place.name || place.location || '장소'), // 별칭(name 대체)
       client_id: String(place.id), // 클라 고유 id
     };
 
@@ -664,7 +665,7 @@ export default function Map() {
 
       setSearchResultPlace({
         id: String(place.id),
-        type: place.place_name,
+        name: place.place_name,
         location: place.address_name,
         lat,
         lng,
@@ -678,9 +679,27 @@ export default function Map() {
     }
   }
 
+  function derivePlaceName(p?: {
+    name?: string;
+    location?: string;
+    lat?: number;
+    lng?: number;
+  }) {
+    const cand =
+      (p?.name && p.name.trim()) || (p?.location && p.location.trim());
+    if (cand) return cand;
+    if (typeof p?.lat === 'number' && typeof p?.lng === 'number') {
+      return `장소 ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
+    }
+    return '장소';
+  }
+
   function confirmSavePlace() {
     if (!searchResultPlace) return;
-    const p = searchResultPlace;
+    const p: PlaceItem = {
+      ...searchResultPlace,
+      name: derivePlaceName(searchResultPlace),
+    };
 
     // 1) 로컬 추가
     setSavedPlaces(prev => {
@@ -892,9 +911,9 @@ export default function Map() {
 
               <Text style={styles.saveSubtitle}>검색된 장소를 저장할까요?</Text>
 
-              {!!searchResultPlace?.type && (
+              {!!searchResultPlace?.name && (
                 <Text style={styles.savePlaceName}>
-                  {searchResultPlace?.type}
+                  {searchResultPlace?.name}
                 </Text>
               )}
               {!!searchResultPlace?.location && (
@@ -1030,7 +1049,7 @@ export default function Map() {
                         <View style={styles.placeRow}>
                           <View style={styles.greenCircleSmall} />
                           <View style={{ marginLeft: 6, flex: 1 }}>
-                            <Text style={styles.placeTitle}>{item.type}</Text>
+                            <Text style={styles.placeTitle}>{item.name}</Text>
                             <View style={styles.placeMetaRow}>
                               <MaterialIcons
                                 name="place"

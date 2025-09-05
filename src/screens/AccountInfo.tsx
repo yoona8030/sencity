@@ -343,7 +343,7 @@ export default function AccountInfo() {
           />
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>동의 항목</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 15 }]}>동의 항목</Text>
 
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>이용약관 동의 (필수)</Text>
@@ -406,7 +406,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center', // 제목을 화면 중앙에
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 20,
     paddingBottom: 8,
     backgroundColor: '#fff',
   },
@@ -418,13 +418,13 @@ const styles = StyleSheet.create({
   headerCloseBtn: {
     position: 'absolute',
     right: 16,
-    top: 12,
+    top: 16,
     padding: 4,
   },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { padding: 15, paddingBottom: 20 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#000' },
-  field: { marginTop: 14 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#000' },
+  field: { marginTop: 10 },
   label: { fontSize: 13, color: '#333', marginBottom: 6, fontWeight: '600' },
   input: {
     borderWidth: 1,
@@ -432,8 +432,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: Platform.OS === 'ios' ? 12 : 0,
-    height: 48,
-    lineHeight: 20, // ← 고정 (fontSize 대비 20~22 추천)
+    height: 44,
+    lineHeight: 16, // ← 고정 (fontSize 대비 20~22 추천)
     fontWeight: '400',
     fontSize: 16,
     color: '#222',
@@ -444,14 +444,14 @@ const styles = StyleSheet.create({
     fontFamily: Platform.select({ ios: 'System', android: 'sans-serif' }),
   },
   switchRow: {
-    marginTop: 14,
+    marginTop: 6,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   switchLabel: { fontSize: 16, color: '#000' },
   saveBtn: {
-    marginTop: 28,
+    marginTop: 18,
     height: 48,
     borderRadius: 12,
     alignItems: 'center',

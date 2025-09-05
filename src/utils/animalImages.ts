@@ -1,6 +1,6 @@
 export const animalImages: Record<string, any> = {
-  raccoon: require('../../assets/images/raccoon.png'),
-  너구리: require('../../assets/images/raccoon.png'),
+  raccoon: require('../../assets/images/Raccoon.png'),
+  너구리: require('../../assets/images/Raccoon.png'),
   Wild_boar: require('../../assets/images/Wild_boar.png'),
   멧돼지: require('../../assets/images/Wild_boar.png'),
   Squirrel: require('../../assets/images/Squirrel.png'),

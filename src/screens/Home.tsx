@@ -15,6 +15,9 @@ import {
   NativeSyntheticEvent,
   StatusBar,
   NativeScrollEvent,
+  ActivityIndicator,
+  StyleProp,
+  ViewStyle,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { KAKAO_JS_KEY } from '@env';
@@ -22,19 +25,29 @@ import { WebView } from 'react-native-webview';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { TabParamList } from '../navigation/TabNavigator';
+import { getJSON } from '../api/client';
+import { useAppAlert } from '../components/AppAlertProvider'; // ✅ 전역 알림 훅 추가
+import { handleApiError } from '../api/handleApiError';
+
+type Summary = {
+  total_reports: number;
+  top_animal: { id: number; name: string; count: number } | null;
+  last_report_date: string | null;
+};
 
 export default function Home() {
   const insets = useSafeAreaInsets();
   const TOP_SHAVE = 8;
   const topPadding = Math.max(insets.top - TOP_SHAVE, 0);
 
+  // 전역 알림
+  const { notify } = useAppAlert(); // ✅ 사용
   // 시계
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-
   const dateString = `${now.getFullYear()}년 ${String(
     now.getMonth() + 1,
   ).padStart(2, '0')}월 ${String(now.getDate()).padStart(2, '0')}일`;
@@ -45,6 +58,43 @@ export default function Home() {
     now.getMinutes(),
   ).padStart(2, '0')}분`;
 
+  // ===== 요약 데이터 =====
+  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<Summary | null>(null);
+
+  const formatDate = (iso: string | null) => {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '-';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dy = String(d.getDate()).padStart(2, '0');
+    return `${y}.${m}.${dy}`;
+  };
+
+  const fetchSummary = async () => {
+    try {
+      const data = await getJSON<Summary>(
+        '/reports/summary/?scope=global&period=all',
+      );
+      setSummary(data);
+    } catch (e) {
+      await handleApiError(e, notify, navigation); // ✅ 401 자동 로그아웃 + 알림
+      setSummary(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSummary();
+  }, []);
+
+  const total = summary?.total_reports ?? 0;
+  const topAnimal = summary?.top_animal?.name ?? '-';
+  const lastDate = formatDate(summary?.last_report_date ?? null);
+
+  // ===== 뉴스/맵 기존 코드 =====
   const newsList = [
     {
       id: '1',
@@ -59,7 +109,6 @@ export default function Home() {
       url: 'https://www.chosun.com/…/',
     },
   ];
-
   const { width } = Dimensions.get('window');
   const H_PADDING = 16;
   const CARD_WIDTH = width - H_PADDING * 2;
@@ -73,11 +122,8 @@ export default function Home() {
   };
 
   const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
-
-  // ✅ 항상 focus를 명시해서 보냄
   const goReportStats = () =>
     navigation.navigate('Report', { focus: 'stats', _t: Date.now() });
-
   const goReportHistory = () =>
     navigation.navigate('Report', { focus: 'history', _t: Date.now() });
 
@@ -97,6 +143,35 @@ export default function Home() {
       </script>
     </body></html>
   `;
+
+  const StatCard = ({
+    title,
+    value,
+    onPress,
+    loading,
+    style,
+  }: {
+    title: string;
+    value: string | number;
+    onPress?: () => void;
+    loading?: boolean;
+    style?: StyleProp<ViewStyle>;
+  }) => (
+    <TouchableOpacity
+      style={[styles.statCard, style]}
+      onPress={onPress}
+      activeOpacity={0.8}
+      disabled={loading}
+      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+    >
+      <Text style={styles.statTitle}>{title}</Text>
+      {loading ? (
+        <ActivityIndicator size="small" style={{ marginTop: 6 }} />
+      ) : (
+        <Text style={styles.statValue}>{value}</Text>
+      )}
+    </TouchableOpacity>
+  );
 
   return (
     <>
@@ -122,38 +197,29 @@ export default function Home() {
             </View>
           </View>
 
-          {/* ⬇ 노란 카드들 */}
+          {/* ⬇ 노란 카드들 (백엔드 연동) */}
           <View style={styles.statsRow}>
-            <TouchableOpacity
-              style={styles.statCard}
+            <StatCard
+              title="총 신고 수"
+              value={`${total}건`}
               onPress={goReportStats}
-              activeOpacity={0.8}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Text style={styles.statTitle}>총 신고 수</Text>
-              <Text style={styles.statValue}>16건</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.statCard}
+              loading={loading}
+            />
+            <StatCard
+              title="가장 많이 신고한 동물"
+              value={topAnimal}
               onPress={goReportStats}
-              activeOpacity={0.8}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Text style={styles.statTitle}>가장 많이 신고한 동물</Text>
-              <Text style={styles.statValue}>고라니</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.statCard}
+              loading={loading}
+            />
+            <StatCard
+              title="마지막 신고일"
+              value={lastDate}
               onPress={goReportHistory}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.statTitle}>마지막 신고일</Text>
-              <Text style={styles.statValue}>2025.04.20</Text>
-            </TouchableOpacity>
+              loading={loading}
+            />
           </View>
 
+          {/* 뉴스 캐러셀 */}
           <FlatList
             data={newsList}
             keyExtractor={item => item.id}
@@ -196,6 +262,7 @@ export default function Home() {
             ))}
           </View>
 
+          {/* 지도 섹션 */}
           <View style={styles.mapSection}>
             <WebView
               originWhitelist={['*']}
@@ -233,9 +300,9 @@ const styles = StyleSheet.create({
   },
   logo: { width: 100, height: 90, resizeMode: 'contain' },
   headerText: { marginLeft: 12 },
-  appName: { fontSize: 20, fontWeight: 'bold', color: '#00000' },
-  date: { fontSize: 14, color: '#00000', marginTop: 2 },
-  time: { fontSize: 14, color: '#00000', marginTop: 2 },
+  appName: { fontSize: 20, fontWeight: 'bold', color: '#000' },
+  date: { fontSize: 14, color: '#000', marginTop: 2 },
+  time: { fontSize: 14, color: '#000', marginTop: 2 },
 
   statsRow: {
     flexDirection: 'row',
@@ -259,7 +326,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     textAlignVertical: 'center',
   },
-  statValue: { fontSize: 15, fontWeight: 'bold' },
+  statValue: { fontSize: 15, fontWeight: 'bold', marginTop: 6 },
 
   newsCard: { borderRadius: 12, overflow: 'hidden' },
   newsImage: { width: '100%', height: '100%', resizeMode: 'cover' },
@@ -297,7 +364,7 @@ const styles = StyleSheet.create({
   inactiveDot: { backgroundColor: 'rgba(255,255,255,0.5)' },
 
   mapSection: {
-    height: 330,
+    height: 335,
     marginHorizontal: 16,
     borderRadius: 12,
     overflow: 'hidden',

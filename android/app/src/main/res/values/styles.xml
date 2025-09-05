@@ -1,13 +1,15 @@
 <resources>
-  <!-- AppTheme: 프로젝트에서 딱 1개만 존재 -->
   <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
     <item name="android:windowIsTranslucent">false</item>
     <item name="android:windowBackground">@android:color/white</item>
     <!-- 기존에 필요했던 item이 있으면 여기에 추가 -->
   </style>
 
-  <!-- BootTheme: Theme.SplashScreen/윈도우 스플래시 속성 전부 제거 -->
   <style name="BootTheme" parent="@style/AppTheme">
     <item name="android:windowBackground">@drawable/bootsplash</item>
+
+    <item name="bootSplashBackground">@color/bootsplash_background</item>
+    <item name="bootSplashLogo">@drawable/bootsplash_logo</item>
+    <item name="postBootSplashTheme">@style/AppTheme</item>
   </style>
 </resources>

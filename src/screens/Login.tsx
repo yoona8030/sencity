@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// src/screens/Login.tsx
+import React, { useEffect, useState } from 'react';
 import {
   View,
   TextInput,
@@ -6,47 +7,58 @@ import {
   StyleSheet,
   Image,
   TouchableOpacity,
-  Alert,
   Pressable,
   GestureResponderEvent,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { CheckBox } from 'react-native-elements';
 import Icon from 'react-native-vector-icons/FontAwesome';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/RootNavigator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { color } from 'react-native-elements/dist/helpers';
-
-type LoginScreenNavigationProp = NativeStackNavigationProp<
-  RootStackParamList,
-  'Login'
->;
-
-type LoginScreenRouteProp = RouteProp<RootStackParamList, 'Login'>;
+import { RootStackParamList } from '../navigation/RootNavigator';
+import { useAppAlert } from '../components/AppAlertProvider'; // ✅ 전역 알림 훅
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
-export default function Login({ navigation, route }: Props) {
-  const [email, setEmail] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
-  const [isChecked, setIsChecked] = useState<boolean>(false);
-  // 1. 실서버 연동 로그인 함수
+const BACKEND_URL = 'http://127.0.0.1:8000/api';
+
+export default function Login({ navigation }: Props) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const { notify, confirm } = useAppAlert(); // ✅ 사용
+
+  // 저장된 이메일 불러오기
+  useEffect(() => {
+    (async () => {
+      const saved = await AsyncStorage.getItem('savedEmail');
+      if (saved) {
+        setEmail(saved);
+        setRemember(true);
+      }
+    })();
+  }, []);
+
+  // 실서버 연동 로그인
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('알림', '이메일과 비밀번호 모두 입력해주세요');
+      await notify({
+        title: '알림',
+        message: '이메일과 비밀번호를 모두 입력해주세요.',
+      });
       return;
     }
 
     try {
+      setLoading(true);
+
       const cleanedEmail = email.trim().toLowerCase();
       const cleanedPassword = password.trim();
-      // 애뮬레이터
-      // const response = await fetch('http://172.18.35.178/api/login/', {
-      // 실제 기기
-      const response = await fetch('http://127.0.0.1:8000/api/login/', {
+
+      const res = await fetch(`${BACKEND_URL}/login/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -55,41 +67,48 @@ export default function Login({ navigation, route }: Props) {
         }),
       });
 
-      if (!response.ok) {
-        Alert.alert('로그인 실패', '이메일 또는 비밀번호가 일치하지 않습니다');
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        let message = '이메일 또는 비밀번호가 올바르지 않습니다.';
+        try {
+          const j = JSON.parse(txt);
+          message = j?.detail || j?.message || message;
+        } catch {
+          /* ignore */
+        }
+        await notify({ title: '로그인 실패', message });
         return;
       }
 
-      // 토큰/세션 등 필요시 아래에서 처리
-      const data = await response.json();
-      if (data.token) {
-        await AsyncStorage.setItem('accessToken', data.token); // ★ 저장
-        const confirmToken = await AsyncStorage.getItem('accessToken');
-        console.log('🔐 저장된 토큰:', confirmToken);
+      const data = await res.json();
+      const access = data.access || data.token || null;
+      const refresh = data.refresh || null;
 
-        if (!confirmToken) {
-          Alert.alert('오류', '토큰 저장에 실패했습니다.');
-          return;
-        }
-
-        Alert.alert('로그인 성공', `${email}님 환영합니다!`);
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'MainTabs' }],
-        });
+      if (!access) {
+        await notify({ title: '오류', message: '토큰을 받지 못했습니다.' });
+        return;
       }
 
-      console.log(data); // 서버에서 받은 전체 응답 객체
-      console.log(data.token); // 토큰이 있으면
-      console.log(data.user); // 유저 정보가 있으면
+      await AsyncStorage.setItem('accessToken', access);
+      if (refresh) await AsyncStorage.setItem('refreshToken', refresh);
 
-      Alert.alert('로그인 성공', `${email}님 환영합니다!`);
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'MainTabs' }],
+      if (remember) {
+        await AsyncStorage.setItem('savedEmail', cleanedEmail);
+      } else {
+        await AsyncStorage.removeItem('savedEmail');
+      }
+
+      await notify({ title: '완료', message: `${cleanedEmail}님 환영합니다!` });
+
+      // 홈으로 전환(스택 리셋)
+      navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+    } catch (e: any) {
+      await notify({
+        title: '오류',
+        message: e?.message ?? '서버와의 통신에 실패했습니다.',
       });
-    } catch (error) {
-      Alert.alert('오류', '서버와의 통신에 실패했습니다.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -127,40 +146,27 @@ export default function Login({ navigation, route }: Props) {
     );
   };
 
-  const handleGoogleLogin = () => {
-    Alert.alert(
-      '알림',
-      'SENCITY에서 Google을 열려고 합니다',
-      [
-        { text: '취소', style: 'cancel' },
-        { text: '확인', onPress: () => console.log('Google 로그인') },
-      ],
-      { cancelable: true },
-    );
+  // SNS 로그인: 전역 confirm 사용 (취소=검정, 확인=#DD0000 은 기본값)
+  const handleGoogleLogin = async () => {
+    const ok = await confirm({
+      title: '알림',
+      message: 'SENCITY에서 Google을 열려고 합니다',
+    });
+    if (ok) console.log('Google 로그인');
   };
-
-  const handleNaver = () => {
-    Alert.alert(
-      '알림',
-      'SENCITY에서 Naver을 열려고 합니다',
-      [
-        { text: '취소', style: 'cancel' },
-        { text: '확인', onPress: () => console.log('Naver 로그인') },
-      ],
-      { cancelable: true },
-    );
+  const handleNaver = async () => {
+    const ok = await confirm({
+      title: '알림',
+      message: 'SENCITY에서 Naver를 열려고 합니다',
+    });
+    if (ok) console.log('Naver 로그인');
   };
-
-  const handleFacebookLogin = () => {
-    Alert.alert(
-      '알림',
-      'SENCITY에서 Facebook을 열려고 합니다',
-      [
-        { text: '취소', style: 'cancel' },
-        { text: '확인', onPress: () => console.log('Facebook 로그인') },
-      ],
-      { cancelable: true },
-    );
+  const handleFacebookLogin = async () => {
+    const ok = await confirm({
+      title: '알림',
+      message: 'SENCITY에서 Facebook을 열려고 합니다',
+    });
+    if (ok) console.log('Facebook 로그인');
   };
 
   return (
@@ -187,6 +193,7 @@ export default function Login({ navigation, route }: Props) {
             keyboardType="email-address"
           />
         </View>
+
         <View style={styles.inputContainer}>
           <Text style={styles.label}>비밀번호</Text>
           <TextInput
@@ -196,11 +203,12 @@ export default function Login({ navigation, route }: Props) {
             secureTextEntry
           />
         </View>
+
         <View style={{ width: '100%' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <CheckBox
-              checked={isChecked}
-              onPress={() => setIsChecked(!isChecked)}
+              checked={remember}
+              onPress={() => setRemember(!remember)}
               checkedColor="#DD0000"
               uncheckedColor="#D2D2D2"
               containerStyle={{
@@ -210,26 +218,30 @@ export default function Login({ navigation, route }: Props) {
                 margin: 0,
               }}
             />
-            <Text
-              style={{
-                fontSize: 14,
-                color: '#000',
-                fontWeight: '500',
-                marginLeft: 0,
-              }}
-            >
+            <Text style={{ fontSize: 14, color: '#000', fontWeight: '500' }}>
               로그인 정보 저장
             </Text>
           </View>
         </View>
-        <Pressable style={styles.loginButton} onPress={handleLogin}>
-          <Text style={styles.loginButtonText}>로그인</Text>
+
+        <Pressable
+          style={[styles.loginButton, loading && { opacity: 0.6 }]}
+          onPress={handleLogin}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.loginButtonText}>로그인</Text>
+          )}
         </Pressable>
+
         <View style={styles.orContainer}>
           <View style={styles.line} />
           <Text style={styles.orText}>OR</Text>
           <View style={styles.line} />
         </View>
+
         <View style={styles.snsButtons}>
           <LoginButton
             iconSource={require('../../assets/images/google.png')}
@@ -246,7 +258,7 @@ export default function Login({ navigation, route }: Props) {
             text="Facebook 로그인"
             onPress={handleFacebookLogin}
           />
-          {/* 이메일 찾기, 비밀번호 찾기 텍스트 */}
+
           <View style={styles.findContainer}>
             <Text
               style={styles.findText}
@@ -268,10 +280,6 @@ export default function Login({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // overlay: {
-  //   ...StyleSheet.absoluteFillObject,
-  //   backgroundColor: 'rgba(255,0,0,0.2)', // 임시
-  // },
   container: {
     flex: 1,
     padding: 20,
@@ -311,17 +319,6 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 5,
   },
-  checkboxContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    alignSelf: 'flex-start',
-  },
-  checkboxLabel: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: '#333',
-  },
   loginButton: {
     backgroundColor: '#FEBA15',
     paddingVertical: 12,
@@ -330,9 +327,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
     width: '100%',
     alignItems: 'center',
-  },
-  snsIcon: {
-    marginRight: 10,
   },
   loginButtonText: {
     color: '#fff',
@@ -377,6 +371,7 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
+  snsIcon: { marginRight: 10 },
   snsIconImage: {
     width: 24,
     height: 24,

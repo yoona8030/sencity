@@ -35,6 +35,9 @@ const GUIDES = [
   // … 더 추가 예정
 ];
 
+// ▽ 검색/탭/내용을 위로 당길 정도(음수면 위로)
+const SHIFT_UP = -15;
+
 export default function CustomerCenter({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<'faq' | 'guide'>('faq');
@@ -54,48 +57,54 @@ export default function CustomerCenter({ navigation }: Props) {
           <Icon name="close" size={24} />
         </TouchableOpacity>
       </View>
+      <View style={[styles.bodyPullUp, { marginTop: SHIFT_UP }]}>
+        <View style={styles.searchWrapper}>
+          <Icon name="search-outline" size={20} color="#888" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="무엇을 도와드릴까요?"
+            placeholderTextColor="#888"
+          />
+        </View>
 
-      <View style={styles.searchWrapper}>
-        <Icon name="search-outline" size={20} color="#888" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="무엇을 도와드릴까요?"
-          placeholderTextColor="#888"
-        />
-      </View>
-
-      <View style={styles.tabRow}>
-        <TouchableOpacity
-          style={[styles.tabButton, tab === 'faq' && styles.tabButtonActive]}
-          onPress={() => setTab('faq')}
-        >
-          <Text style={[styles.tabText, tab === 'faq' && styles.tabTextActive]}>
-            자주 묻는 질문
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tabButton, tab === 'guide' && styles.tabButtonActive]}
-          onPress={() => setTab('guide')}
-        >
-          <Text
-            style={[styles.tabText, tab === 'guide' && styles.tabTextActive]}
+        <View style={styles.tabRow}>
+          <TouchableOpacity
+            style={[styles.tabButton, tab === 'faq' && styles.tabButtonActive]}
+            onPress={() => setTab('faq')}
           >
-            앱 사용 가이드
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.content}>
-        {listData.map((text, idx) => (
-          <TouchableOpacity key={idx} style={styles.item} onPress={() => {}}>
-            <Text style={styles.itemText}>{text}</Text>
-            <Icon name="chevron-forward" size={20} color="#888" />
+            <Text
+              style={[styles.tabText, tab === 'faq' && styles.tabTextActive]}
+            >
+              자주 묻는 질문
+            </Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+          <TouchableOpacity
+            style={[
+              styles.tabButton,
+              tab === 'guide' && styles.tabButtonActive,
+            ]}
+            onPress={() => setTab('guide')}
+          >
+            <Text
+              style={[styles.tabText, tab === 'guide' && styles.tabTextActive]}
+            >
+              앱 사용 가이드
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={styles.content}>
+          {listData.map((text, idx) => (
+            <TouchableOpacity key={idx} style={styles.item} onPress={() => {}}>
+              <Text style={styles.itemText}>{text}</Text>
+              <Icon name="chevron-forward" size={20} color="#888" />
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       <TouchableOpacity
-        style={[styles.footerButton, { marginBottom: insets.bottom + 8 }]}
+        style={[styles.footerButton, { marginBottom: insets.bottom + 20 }]}
         onPress={() => navigation.navigate('Inquiry')}
       >
         <Text style={styles.footerButtonText}>1:1 문의하기</Text>
@@ -116,6 +125,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
     minHeight: 40,
+    transform: [{ translateY: -15 }],
   },
   leftHeader: {
     flexDirection: 'row',
@@ -128,9 +138,13 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
   },
   headerTitle: {
-    fontSize: 25,
+    fontSize: 23,
     fontWeight: 'bold',
     marginLeft: 8,
+  },
+
+  bodyPullUp: {
+    flex: 1,
   },
 
   searchWrapper: {

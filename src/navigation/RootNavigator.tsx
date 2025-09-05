@@ -1,3 +1,4 @@
+// src/navigation/RootNavigator.tsx
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -21,17 +22,20 @@ export type RootStackParamList = {
   AccountInfo: undefined;
 };
 
+type Props = {
+  // ✅ App에서 받은 값만 사용 (자체 판정/상태/효과 없음)
+  initialRouteName: keyof RootStackParamList;
+};
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-type Props = { initialRouteName?: keyof RootStackParamList };
-
-export default function RootNavigator({ initialRouteName = 'Login' }: Props) {
+export default function RootNavigator({ initialRouteName }: Props) {
   return (
     <Stack.Navigator
       initialRouteName={initialRouteName}
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: '#FFFFFF' }, // <- 흰색
+        contentStyle: { backgroundColor: '#FFFFFF' },
       }}
     >
       <Stack.Screen name="Login" component={Login} />

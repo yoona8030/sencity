@@ -7,7 +7,6 @@ import {
   Image,
   Switch,
   TouchableOpacity,
-  Alert,
   Modal,
   TextInput,
 } from 'react-native';
@@ -17,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
+import { useAppAlert } from '../components/AppAlertProvider'; // ✅ Provider 훅
 
 type MypageNavProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -29,72 +29,62 @@ type Props = {
 const Mypage: React.FC = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const navigation = useNavigation<MypageNavProp>();
+  const { confirm, notify } = useAppAlert(); // ✅ 전역 알림 훅
 
   const toggleNotifications = () => setNotificationsEnabled(prev => !prev);
 
-  // 실제 로그아웃 처리
   const doLogout = async () => {
     try {
-      await AsyncStorage.removeItem('userToken');
-      await AsyncStorage.removeItem('userEmail');
+      await AsyncStorage.multiRemove([
+        'accessToken',
+        'refreshToken',
+        'userEmail',
+      ]);
       navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'Login' as never }],
-        }),
+        CommonActions.reset({ index: 0, routes: [{ name: 'Login' as never }] }),
       );
-    } catch {
-      Alert.alert('오류', '로그아웃 중 오류가 발생했습니다.');
+    } catch (e: any) {
+      await notify({
+        title: '오류',
+        message: e?.message ?? '로그아웃 중 오류가 발생했습니다.',
+      });
     }
   };
 
-  // 로그아웃 전 확인
-  const handleLogout = () => {
-    Alert.alert(
-      '로그아웃',
-      '정말 로그아웃하시겠습니까?',
-      [
-        { text: '취소', style: 'cancel' },
-        { text: '확인', onPress: doLogout },
-      ],
-      { cancelable: true },
-    );
+  const handleLogout = async () => {
+    const ok = await confirm({
+      title: '로그아웃',
+      message: '정말 로그아웃하시겠습니까?',
+    });
+    if (ok) await doLogout();
   };
 
-  // 실제 회원탈퇴 처리 (예: 서버 API 호출 포함)
   const doWithdraw = async () => {
     try {
-      // TODO: 서버 API로 탈퇴 요청 (예: await api.delete('/user'))
       await AsyncStorage.clear();
       navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'Login' as never }],
-        }),
+        CommonActions.reset({ index: 0, routes: [{ name: 'Login' as never }] }),
       );
-    } catch {
-      Alert.alert('오류', '회원탈퇴 중 오류가 발생했습니다.');
+    } catch (e: any) {
+      await notify({
+        title: '오류',
+        message: e?.message ?? '회원탈퇴 중 오류가 발생했습니다.',
+      });
     }
   };
 
-  // 회원탈퇴 전 확인
-  const handleWithdraw = () => {
-    Alert.alert(
-      '회원탈퇴',
-      '정말 회원탈퇴하시겠습니까?\n(모든 정보가 삭제됩니다)',
-      [
-        { text: '취소', style: 'cancel' },
-        { text: '확인', onPress: doWithdraw },
-      ],
-      { cancelable: true },
-    );
+  const handleWithdraw = async () => {
+    const ok = await confirm({
+      title: '회원탈퇴',
+      message: '정말 회원탈퇴하시겠습니까?\n(모든 정보가 삭제됩니다)',
+    });
+    if (ok) await doWithdraw();
   };
 
   const [displayName, setDisplayName] = useState('이름');
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [editVisible, setEditVisible] = useState(false);
 
-  // 추가: 저장된 프로필 로드
   useEffect(() => {
     (async () => {
       const name = (await AsyncStorage.getItem('profileName')) ?? '이름';
@@ -104,23 +94,26 @@ const Mypage: React.FC = () => {
     })();
   }, []);
 
-  // 추가: 사진 선택
   const pickImage = async () => {
     const res = await launchImageLibrary({
       mediaType: 'photo',
       selectionLimit: 1,
     });
-    if (!res.didCancel && res.assets?.[0]?.uri) {
-      setAvatarUri(res.assets[0].uri);
-    }
+    if (!res.didCancel && res.assets?.[0]?.uri) setAvatarUri(res.assets[0].uri);
   };
 
-  // 추가: 저장
   const saveProfile = async () => {
-    await AsyncStorage.setItem('profileName', displayName);
-    await AsyncStorage.setItem('profileAvatar', avatarUri || '');
-    Alert.alert('완료', '프로필이 저장되었습니다.');
-    setEditVisible(false);
+    try {
+      await AsyncStorage.setItem('profileName', displayName);
+      await AsyncStorage.setItem('profileAvatar', avatarUri || '');
+      await notify({ title: '완료', message: '프로필이 저장되었습니다.' });
+      setEditVisible(false);
+    } catch (e: any) {
+      await notify({
+        title: '오류',
+        message: e?.message ?? '프로필 저장 중 오류가 발생했습니다.',
+      });
+    }
   };
 
   return (
@@ -129,7 +122,7 @@ const Mypage: React.FC = () => {
         <Text style={styles.titleText}>마이페이지</Text>
         <TouchableOpacity
           style={styles.headerIconBtn}
-          onPress={() => navigation.navigate('Notification')}
+          onPress={() => navigation.navigate('Notification' as never)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <Icon name="notifications-outline" size={24} color="black" />
@@ -157,12 +150,16 @@ const Mypage: React.FC = () => {
       </View>
 
       <View style={styles.menuSection}>
-        <View style={styles.menuItem}>
+        {/* ✅ 알림 설정: 컴팩트 패딩 + 스위치 축소 */}
+        <View style={[styles.menuItem, styles.menuItemCompact]}>
           <View style={styles.menuIconText}>
-            <Icon name="notifications-outline" size={24} />
-            <Text style={styles.menuText}>알림 설정</Text>
+            <Icon name="notifications-outline" size={22} />
+            <Text style={[styles.menuText, styles.menuTextCompact]}>
+              알림 설정
+            </Text>
           </View>
           <Switch
+            style={styles.switchCompact}
             value={notificationsEnabled}
             onValueChange={toggleNotifications}
             trackColor={{ false: '#ccc', true: '#FEBA15' }}
@@ -173,7 +170,7 @@ const Mypage: React.FC = () => {
 
         <TouchableOpacity
           style={styles.menuItem}
-          onPress={() => navigation.navigate('CustomerCenter')}
+          onPress={() => navigation.navigate('CustomerCenter' as never)}
         >
           <View style={styles.menuIconText}>
             <Icon name="headset-outline" size={24} />
@@ -184,7 +181,7 @@ const Mypage: React.FC = () => {
 
         <TouchableOpacity
           style={styles.menuItem}
-          onPress={() => navigation.navigate('AccountInfo')}
+          onPress={() => navigation.navigate('AccountInfo' as never)}
         >
           <View style={styles.menuIconText}>
             <Icon name="person-circle-outline" size={24} />
@@ -209,20 +206,19 @@ const Mypage: React.FC = () => {
           <Icon name="chevron-forward" size={24} />
         </TouchableOpacity>
       </View>
-      {/* 추가: 프로필 편집 모달 */}
+
+      {/* 프로필 편집 모달 */}
       <Modal
         visible={editVisible}
         transparent
         animationType="fade"
         onRequestClose={() => setEditVisible(false)}
       >
-        {/* 반투명 배경 */}
         <TouchableOpacity
           activeOpacity={1}
           style={styles.modalBackdrop}
           onPress={() => setEditVisible(false)}
         />
-        {/* 중앙 카드 */}
         <View style={styles.modalCenter} pointerEvents="box-none">
           <View style={styles.editCard}>
             <Text style={styles.editTitle}>프로필 변경</Text>
@@ -287,7 +283,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     flexDirection: 'row',
     justifyContent: 'center',
-    alignItems: 'center', // 세로 가운데 맞춤
+    alignItems: 'center',
     paddingHorizontal: 16,
     marginVertical: 10,
   },
@@ -296,15 +292,16 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginTop: 20,
     marginRight: 8,
-    textAlign: 'center', // 텍스트 자체는 가운데 정렬
-    flex: 1, // 남은 공간 차지 → 중앙 정렬 효과
+    textAlign: 'center',
+    flex: 1,
   },
   headerIconBtn: {
     position: 'absolute',
     right: 16,
-    top: 20, // 헤더 높이에 맞춰 세로 위치 미세조정 (8~12 권장)
-    padding: 4, // 터치 영역 보강
+    top: 20,
+    padding: 4,
   },
+
   profileSection: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -330,9 +327,25 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
+
+  // ✅ 알림 설정 전용: 더 촘촘하게
+  menuItemCompact: {
+    paddingVertical: 8,
+    minHeight: 44,
+  },
+  switchCompact: {
+    transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }],
+    marginVertical: -2,
+  },
+  menuTextCompact: {
+    fontSize: 15,
+    marginLeft: 10,
+  },
+
   menuIconText: { flexDirection: 'row', alignItems: 'center' },
   menuText: { fontSize: 16, marginLeft: 12, fontWeight: 'bold' },
-  // 추가: 모달 스타일들
+
+  // 모달
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.35)',
@@ -407,10 +420,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalBtnText: {
-    color: '#333',
-    fontWeight: '700',
-  },
+  modalBtnText: { color: '#333', fontWeight: '700' },
   cancelBtn: {
     borderWidth: 1,
     borderColor: '#E5E5E5',
