@@ -1,12 +1,12 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+<manifest
+  xmlns:android="http://schemas.android.com/apk/res/android"
   package="com.sencity">
-
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-
-  <!-- ✅ 위치 권한 (포그라운드) -->
+  <uses-permission android:name="android.permission.CAMERA"/>
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
   <application
     android:name=".MainApplication"
@@ -14,15 +14,15 @@
     android:icon="@mipmap/ic_launcher"
     android:roundIcon="@mipmap/ic_launcher_round"
     android:allowBackup="false"
+    android:usesCleartextTraffic="true"
     android:theme="@style/AppTheme">
-
     <activity
       android:name=".MainActivity"
       android:exported="true"
       android:launchMode="singleTask"
       android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
-      android:windowSoftInputMode="adjustResize"
-      android:theme="@style/AppTheme">
+      android:windowSoftInputMode="stateAlwaysHidden|adjustPan"
+      android:theme="@style/BootTheme">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />

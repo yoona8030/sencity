@@ -1,5 +1,5 @@
 // src/screens/SignUp.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   TextInput,
@@ -12,56 +12,34 @@ import {
   ScrollView,
   Keyboard,
   TouchableWithoutFeedback,
-  Pressable,
+  Image,
+  Animated,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-// ⛔️ react-native-elements CheckBox 제거(피어 의존 충돌). Ionicons로 대체
-import Ionicons from 'react-native-vector-icons/Ionicons';
-
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-// ✅ 루트 네비 타입은 RootNavigator에서 가져와 일관 유지
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// ✅ 커스텀 체크박스(Reanimated 버전)
+import Checkbox from '../components/Checkbox';
 
 type SignUpScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
   'SignUp'
 >;
-
 type Props = { navigation: SignUpScreenNavigationProp };
 
 type EmailCheckResponse = { is_duplicate: boolean };
 
-// ✔️ 간단 체크박스(아이콘 기반)
-function Checkbox({
-  checked,
-  onPress,
-}: {
-  checked: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{ padding: 4, marginRight: 8 }}
-      hitSlop={8}
-    >
-      <Ionicons
-        name={checked ? 'checkbox' : 'square-outline'}
-        size={22}
-        color={checked ? '#DD0000' : '#D2D2D2'}
-      />
-    </Pressable>
-  );
-}
-
-// ⚠️ 실제 기기/에뮬레이터 주소 주의!
-// - AVD: http://10.0.2.2:8000
-// - 물리기기: PC의 LAN IP (예: http://192.168.x.x:8000)
-// 지금은 에뮬레이터 기준으로 둡니다.
 const API_BASE = 'http://10.0.2.2:8000/api';
 
 const SignUp: React.FC<Props> = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
+  const topGap = Math.max(insets.top, 0) + 20;
+
   const [name, setName] = useState('');
   const [telphone, setTelphone] = useState('');
   const [email, setEmail] = useState('');
@@ -86,7 +64,6 @@ const SignUp: React.FC<Props> = ({ navigation }) => {
     }
 
     try {
-      // const res = await fetch(`${API_BASE}/signup/`, {
       const res = await fetch(`${API_BASE}/signup/`, {
         method: 'POST',
         headers: {
@@ -111,9 +88,7 @@ const SignUp: React.FC<Props> = ({ navigation }) => {
       }
 
       const data = await res.json().catch(() => ({} as any));
-      if (data.token) {
-        await AsyncStorage.setItem('accessToken', data.token);
-      }
+      if (data.token) await AsyncStorage.setItem('accessToken', data.token);
 
       Alert.alert('회원가입 완료', `${name}님 환영합니다!`);
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
@@ -129,7 +104,6 @@ const SignUp: React.FC<Props> = ({ navigation }) => {
       return;
     }
     try {
-      // ⚠️ 백엔드에 실제 "중복확인" 엔드포인트가 따로 있다면 거기로 변경하세요.
       const res = await fetch(`${API_BASE}/signup/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -149,22 +123,73 @@ const SignUp: React.FC<Props> = ({ navigation }) => {
     }
   };
 
+  // 푸터 높이(버튼 48 + 위 여백 10 + 기기 하단 insets)
+  const footerPaddingBottom = insets.bottom + 12;
+  const footerHeight = 48 + 10 + footerPaddingBottom;
+
+  // ── 키보드 높이 측정 → 푸터 카운터 트랜스폼
+  const kbY = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const showEvt =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const onShow = (e: any) => {
+      const h = e?.endCoordinates?.height ?? 0;
+      Animated.timing(kbY, {
+        toValue: h,
+        duration: Platform.OS === 'ios' ? e?.duration ?? 250 : 0,
+        useNativeDriver: true,
+      }).start();
+    };
+    const onHide = (e: any) => {
+      Animated.timing(kbY, {
+        toValue: 0,
+        duration: Platform.OS === 'ios' ? e?.duration ?? 250 : 0,
+        useNativeDriver: true,
+      }).start();
+    };
+
+    const s1 = Keyboard.addListener(showEvt, onShow);
+    const s2 = Keyboard.addListener(hideEvt, onHide);
+    return () => {
+      s1.remove();
+      s2.remove();
+    };
+  }, [kbY]);
+
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      {/* 상단: 로고 + 타이틀 */}
+      <View style={[styles.header, { marginTop: topGap }]}>
+        <Image
+          source={require('../../assets/images/logo.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        <Text style={styles.title} numberOfLines={2}>
+          SENCITY{'\n'}회원가입
+        </Text>
+      </View>
+
+      {/* 폼만 KeyboardAvoidingView로 감싸기 (푸터는 바깥) */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={{ flex: 1 }}>
             <ScrollView
-              contentContainerStyle={styles.scrollContainer}
+              contentContainerStyle={{
+                padding: 20,
+                paddingBottom: footerHeight + 20, // 푸터와 겹치지 않게
+              }}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              <View style={styles.formSection}>
-                <Text style={styles.title}>SENCITY{'\n'}회원가입</Text>
-
+              <View style={{ flex: 1 }}>
                 <View style={styles.inputWrapper}>
                   <TextInput
                     style={styles.input}
@@ -254,48 +279,104 @@ const SignUp: React.FC<Props> = ({ navigation }) => {
                 </View>
               </View>
             </ScrollView>
-
-            <View style={styles.fixedBottom}>
-              <View style={styles.checkboxWrapper}>
-                <Checkbox checked={agree} onPress={() => setAgree(!agree)} />
-                <Text style={styles.checkboxLabel}>
-                  약관 및 개인정보 처리방침에 동의합니다.
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.signupButton}
-                onPress={handleSignUp}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.signupButtonText}>회원가입</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
+
+      {/* 🌟 항상 화면 하단에 고정되는 푸터(Animated로 카운터 트랜스폼) */}
+      <Animated.View
+        style={[
+          styles.fixedBottom,
+          {
+            paddingBottom: footerPaddingBottom,
+            transform: [{ translateY: kbY }],
+          },
+        ]}
+      >
+        <View style={styles.checkboxWrapper}>
+          <Checkbox
+            checked={agree}
+            onChange={next => setAgree(next)}
+            size={18}
+            color="#C62828"
+            radius={4}
+            style={{ marginRight: 10 }} // 라벨과 간격
+          />
+          <Text style={styles.checkboxLabel}>
+            약관 및 개인정보 처리방침에 동의합니다.
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.footerButton}
+          onPress={handleSignUp}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.footerButtonText}>회원가입</Text>
+        </TouchableOpacity>
+      </Animated.View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  scrollContainer: { padding: 20, paddingBottom: 160 },
-  formSection: { flex: 1 },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
+
+  header: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
+  logo: { width: 103, height: 94, marginBottom: 16 },
   title: {
     fontSize: 35,
-    marginBottom: 20,
-    textAlign: 'center',
-    alignSelf: 'center',
-    marginTop: 20,
+    lineHeight: 38,
     fontWeight: 'bold',
+    textAlign: 'center',
+    color: '#000',
   },
+
+  // 입력칸 슬림화
   inputWrapper: {
     borderWidth: 1,
     borderColor: '#D2D2D2',
     borderRadius: 8,
-    padding: 10,
-    marginBottom: 15,
+    padding: 6,
+    marginBottom: 12,
   },
-  input: { paddingHorizontal: 10, height: 40, borderRadius: 5 },
+  input: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 5,
+    textAlignVertical: 'center',
+    fontSize: 14,
+  },
+
+  checkButton: {
+    borderWidth: 1,
+    borderColor: '#D2D2D2',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginLeft: 10,
+    justifyContent: 'center',
+    height: 36,
+  },
+  checkButtonText: { color: '#2B2B2B', fontSize: 14 },
+
+  // ✅ footerButton 패턴(항상 고정)
+  fixedBottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    backgroundColor: '#fff',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#eee',
+  },
   checkboxWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -303,33 +384,25 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     width: '100%',
   },
-  checkboxLabel: { fontSize: 16, fontWeight: 'bold', color: '#000000' },
-  checkButton: {
-    borderWidth: 1,
-    borderColor: '#D2D2D2',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 15,
+  checkboxLabel: {
+    fontSize: 14,
+    color: '#2B2B2B',
+    fontWeight: '500',
     marginLeft: 10,
-    justifyContent: 'center',
-    height: 40,
   },
-  checkButtonText: { color: '#000', fontSize: 14 },
-  signupButton: {
-    backgroundColor: '#FEBA15',
-    paddingVertical: 12,
+
+  footerButton: {
+    height: 48,
     borderRadius: 8,
+    backgroundColor: '#FEBA15',
     alignItems: 'center',
+    justifyContent: 'center',
     width: '100%',
   },
-  signupButtonText: { color: 'black', fontSize: 16, fontWeight: 'bold' },
-  fixedBottom: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    backgroundColor: '#fff',
+  footerButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
   },
 });
 

@@ -1,3 +1,4 @@
+// src/screens/Home.tsx
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   SafeAreaView,
@@ -26,7 +27,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { TabParamList } from '../navigation/TabNavigator';
 import { getJSON } from '../api/client';
-import { useAppAlert } from '../components/AppAlertProvider'; // ✅ 전역 알림 훅 추가
+import { useAppAlert } from '../components/AppAlertProvider';
 import { handleApiError } from '../api/handleApiError';
 
 type Summary = {
@@ -37,11 +38,14 @@ type Summary = {
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const TOP_SHAVE = 8;
-  const topPadding = Math.max(insets.top - TOP_SHAVE, 0);
 
-  // 전역 알림
-  const { notify } = useAppAlert(); // ✅ 사용
+  // ✅ 상단을 "더 내리고" 싶다면: EXTRA_TOP을 더한다
+  const EXTRA_TOP = 0; // ← 취향에 따라 12~24
+  const topPadding = insets.top + EXTRA_TOP;
+
+  const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
+  const { notify } = useAppAlert();
+
   // 시계
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -58,7 +62,7 @@ export default function Home() {
     now.getMinutes(),
   ).padStart(2, '0')}분`;
 
-  // ===== 요약 데이터 =====
+  // 요약 데이터
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<Summary | null>(null);
 
@@ -79,7 +83,7 @@ export default function Home() {
       );
       setSummary(data);
     } catch (e) {
-      await handleApiError(e, notify, navigation); // ✅ 401 자동 로그아웃 + 알림
+      await handleApiError(e, notify, navigation);
       setSummary(null);
     } finally {
       setLoading(false);
@@ -94,7 +98,7 @@ export default function Home() {
   const topAnimal = summary?.top_animal?.name ?? '-';
   const lastDate = formatDate(summary?.last_report_date ?? null);
 
-  // ===== 뉴스/맵 기존 코드 =====
+  // 뉴스/맵
   const newsList = [
     {
       id: '1',
@@ -121,7 +125,6 @@ export default function Home() {
     setActiveIndex(idx);
   };
 
-  const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
   const goReportStats = () =>
     navigation.navigate('Report', { focus: 'stats', _t: Date.now() });
   const goReportHistory = () =>
@@ -204,6 +207,7 @@ export default function Home() {
         ]}
       >
         <View style={styles.container}>
+          {/* 그룹 2 헤더 */}
           <View style={styles.header}>
             <Image
               source={require('../../assets/images/logo.png')}
@@ -211,12 +215,14 @@ export default function Home() {
             />
             <View style={styles.headerText}>
               <Text style={styles.appName}>SENCITY</Text>
-              <Text style={styles.date}>{dateString}</Text>
-              <Text style={styles.time}>{timeString}</Text>
+              <View style={{ gap: 2 }}>
+                <Text style={styles.date}>{dateString}</Text>
+                <Text style={styles.time}>{timeString}</Text>
+              </View>
             </View>
           </View>
 
-          {/* ⬇ 노란 카드들 (백엔드 연동) */}
+          {/* 통계 카드 */}
           <View style={styles.statsRow}>
             <StatCard
               title="총 신고 수"
@@ -311,18 +317,24 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingBottom: 0,
   },
+
+  // ── 그룹 2 헤더 (여유 있게)
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 0,
-    marginBottom: 10,
+    paddingVertical: 14, // ⬅ 8 → 14 로 늘림 (내부 여백 증가)
+    marginBottom: 12, // ⬅ 헤더와 콘텐츠 간 간격도 살짝 늘림
   },
-  logo: { width: 100, height: 90, resizeMode: 'contain' },
-  headerText: { marginLeft: 12 },
-  appName: { fontSize: 20, fontWeight: 'bold', color: '#000' },
-  date: { fontSize: 14, color: '#000', marginTop: 2 },
-  time: { fontSize: 14, color: '#000', marginTop: 2 },
+  logo: {
+    width: 92, // 필요 시 더 키워도 OK
+    height: 82,
+    resizeMode: 'contain',
+  },
+  headerText: { marginLeft: 14 }, // ⬅ 로고와 텍스트 간격 +2
+  appName: { fontSize: 20, fontWeight: 'bold', color: '#000' }, // 그룹2 타이틀 20
+  date: { fontSize: 14, color: '#000' }, // 그룹2 서브 14
+  time: { fontSize: 14, color: '#000' },
 
   statsRow: {
     flexDirection: 'row',
@@ -345,8 +357,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     textAlignVertical: 'center',
+    color: '#1b1b1b',
   },
-  statValue: { fontSize: 15, fontWeight: 'bold', marginTop: 6 },
+  statValue: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginTop: 6,
+    color: '#1b1b1b',
+  },
 
   newsCard: { borderRadius: 12, overflow: 'hidden' },
   newsImage: { width: '100%', height: '100%', resizeMode: 'cover' },

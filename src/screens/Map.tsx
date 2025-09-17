@@ -1376,7 +1376,7 @@ const styles = StyleSheet.create({
   },
   searchBarWrapper: {
     position: 'absolute',
-    top: STATUSBAR_HEIGHT - 5,
+    top: STATUSBAR_HEIGHT + 5,
     left: 16,
     right: 16,
     zIndex: 30,

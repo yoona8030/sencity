@@ -257,17 +257,6 @@ export default function AccountInfo() {
 
   return (
     <View style={styles.container}>
-      {/* 헤더: 제목 가운데, X는 오른쪽 고정 */}
-      <View style={styles.headerRow}>
-        <Text style={styles.headerTitle}>개인 정보</Text>
-        <TouchableOpacity
-          style={styles.headerCloseBtn}
-          onPress={() => navigation.goBack()}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="close" size={24} color="#000" />
-        </TouchableOpacity>
-      </View>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.field}>
           <Text style={styles.label}>이름</Text>
@@ -400,27 +389,6 @@ export default function AccountInfo() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  headerRow: {
-    position: 'relative',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center', // 제목을 화면 중앙에
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 8,
-    backgroundColor: '#fff',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-  },
-  headerCloseBtn: {
-    position: 'absolute',
-    right: 16,
-    top: 16,
-    padding: 4,
-  },
   content: { padding: 15, paddingBottom: 20 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#000' },

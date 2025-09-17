@@ -1,97 +1,56 @@
-// App.tsx (수정본 핵심만)
+// App.tsx (수정완료)
 import 'react-native-gesture-handler';
 import 'react-native-reanimated';
-import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator } from 'react-native';
-import { enableScreens } from 'react-native-screens';
+import React from 'react';
+import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  SafeAreaProvider,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
-import RNBootSplash from 'react-native-bootsplash'; // ✅ 여기서만 hide
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import RNBootSplash from 'react-native-bootsplash';
+
 import { AppAlertProvider } from './src/components/AppAlertProvider';
-import { AuthProvider } from './src/context/AuthContext';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { PreferencesProvider } from './src/state/preferences';
-import AppNavigator from './src/navigation/AppNavigator';
-import type { RootStackParamList } from './src/navigation/RootNavigator';
+import RootNavigator from './src/navigation/RootNavigator';
 
-enableScreens();
+const AppTheme = {
+  ...DefaultTheme,
+  colors: { ...DefaultTheme.colors, background: '#0E0E0E' },
+};
 
-function TopOnlySafeArea({ children }: { children: React.ReactNode }) {
-  const insets = useSafeAreaInsets(); // ✅ 훅은 컴포넌트 최상위
+function AppInner() {
+  const { isReady, user } = useAuth();
+  const [navReady, setNavReady] = React.useState(false);
+
+  // ⬅️ 훅은 조기 return 보다 위에!
+  React.useEffect(() => {
+    if (isReady && navReady) {
+      requestAnimationFrame(() => RNBootSplash.hide({ fade: false }));
+    }
+  }, [isReady, navReady]);
+
+  // 초기화 끝날 때까지 네이티브 스플래시 유지
+  if (!isReady) return null;
+
+  const initialRouteName = user ? 'MainTabs' : 'Login';
+
   return (
-    <View
-      style={{
-        flex: 1,
-        paddingTop: insets.top,
-        backgroundColor: 'transparent',
-      }}
-    >
-      {children}
-    </View>
+    <NavigationContainer theme={AppTheme} onReady={() => setNavReady(true)}>
+      <RootNavigator initialRouteName={initialRouteName} />
+    </NavigationContainer>
   );
 }
 
-const isValidToken = (v?: string | null) =>
-  !!(v && v.trim() !== '' && v !== 'null' && v !== 'undefined');
-
 export default function App() {
-  const [isReady, setIsReady] = useState(false);
-  const [initialRouteName, setInitialRouteName] =
-    useState<keyof RootStackParamList>('Login');
-
-  // ✅ 항상 선언되는 첫 번째 훅
-  useEffect(() => {
-    (async () => {
-      try {
-        const [atk, rtk] = await AsyncStorage.multiGet([
-          'accessToken',
-          'refreshToken',
-        ]);
-        const signedIn = isValidToken(atk?.[1]) || isValidToken(rtk?.[1]);
-        setInitialRouteName(signedIn ? 'MainTabs' : 'Login');
-      } catch {
-        setInitialRouteName('Login');
-      } finally {
-        setIsReady(true);
-      }
-    })();
-  }, []);
-
-  // ✅ 두 번째 훅(조건은 훅 "내부"에서 처리)
-  useEffect(() => {
-    if (isReady) RNBootSplash.hide({ fade: true }).catch(() => {});
-  }, [isReady]);
-
-  if (!isReady) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: '#FFFFFF',
-        }}
-      >
-        <ActivityIndicator />
-        <Text style={{ marginTop: 8 }}>Initializing…</Text>
-      </View>
-    );
-  }
-
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0E0E0E' }}>
       <SafeAreaProvider>
         <BottomSheetModalProvider>
           <PreferencesProvider>
             <AuthProvider>
               <AppAlertProvider>
-                <TopOnlySafeArea>
-                  <AppNavigator initialRouteName={initialRouteName} />
-                </TopOnlySafeArea>
+                <AppInner />
               </AppAlertProvider>
             </AuthProvider>
           </PreferencesProvider>

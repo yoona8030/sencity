@@ -152,25 +152,6 @@ export default function SettingsLocation() {
 
   return (
     <SafeAreaView style={s.container} edges={['left', 'right']}>
-      {/* 헤더 */}
-      <View style={s.header}>
-        <Pressable
-          onPress={() => navigation.goBack()}
-          hitSlop={12}
-          style={s.sideLeft}
-        >
-          <Ionicons name="chevron-back" size={24} color="#000" />
-        </Pressable>
-        <Text style={s.headerTitle}>지도 · 위치 설정</Text>
-        <Pressable
-          onPress={() => navigation.goBack()}
-          hitSlop={12}
-          style={s.sideRight}
-        >
-          <Ionicons name="close" size={24} color="#000" />
-        </Pressable>
-      </View>
-
       {/* 권한 상태 */}
       <View style={s.section}>
         <Text style={s.sectionLabel}>권한</Text>
@@ -260,12 +241,6 @@ export default function SettingsLocation() {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  header: {
-    paddingHorizontal: 16,
-    height: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   sideLeft: { width: 32, alignItems: 'flex-start', justifyContent: 'center' },
   sideRight: { width: 32, alignItems: 'flex-end', justifyContent: 'center' },
   headerTitle: {

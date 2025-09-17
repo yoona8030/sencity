@@ -7,6 +7,7 @@ import {
   Image,
   TextInput,
   ScrollView,
+  Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import {
@@ -18,6 +19,11 @@ import type { RootStackParamList } from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CustomerCenter'>;
 
+// ▽ 추가 여백(“조금”만 내리고 싶을 때). 너무 내려간다면 0 유지.
+const EXTRA_TOP = 0;
+// ▽ 상단 안전영역을 살짝 깎아서 덜 내려오게. 4~8 권장.
+const SAFE_TRIM = 6;
+
 const FAQS = [
   '위치 접근 권한을 허용해야 하나요?',
   '사진 없이도 신고할 수 있나요?',
@@ -26,38 +32,25 @@ const FAQS = [
   '처리 결과에 대해 의견을 남길 수 있나요?',
   '고객센터 운영 시간은 어떻게 되나요?',
   '신고 실수를 했어요. 취소할 수 있나요?',
-  // … 더 추가 예정
 ];
-const GUIDES = [
-  '앱 설치 방법',
-  '신고 절차 안내',
-  '이메일 변경 방법',
-  // … 더 추가 예정
-];
-
-// ▽ 검색/탭/내용을 위로 당길 정도(음수면 위로)
-const SHIFT_UP = -15;
+const GUIDES = ['앱 설치 방법', '신고 절차 안내', '이메일 변경 방법'];
 
 export default function CustomerCenter({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<'faq' | 'guide'>('faq');
   const listData = tab === 'faq' ? FAQS : GUIDES;
 
+  // ✅ 헤더 상단 여백을 “너무 내려가지 않게” 안전영역에서 약간 깎아 사용
+  const headerTop = Platform.select({
+    ios: Math.max(insets.top - SAFE_TRIM, 0) + EXTRA_TOP,
+    android: 2 + EXTRA_TOP, // 안드로이드는 살짝만
+    default: Math.max(insets.top - SAFE_TRIM, 0) + EXTRA_TOP,
+  });
+
   return (
-    <SafeAreaView edges={['top']} style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.leftHeader}>
-          <Image
-            source={require('../../assets/images/logo.png')}
-            style={styles.deerIconLarge}
-          />
-          <Text style={styles.headerTitle}>고객 센터</Text>
-        </View>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="close" size={24} />
-        </TouchableOpacity>
-      </View>
-      <View style={[styles.bodyPullUp, { marginTop: SHIFT_UP }]}>
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.container}>
+      {/* 본문 */}
+      <View style={styles.body}>
         <View style={styles.searchWrapper}>
           <Icon name="search-outline" size={20} color="#888" />
           <TextInput
@@ -93,7 +86,11 @@ export default function CustomerCenter({ navigation }: Props) {
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.content}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: 16 }}
+          keyboardShouldPersistTaps="handled"
+        >
           {listData.map((text, idx) => (
             <TouchableOpacity key={idx} style={styles.item} onPress={() => {}}>
               <Text style={styles.itemText}>{text}</Text>
@@ -103,9 +100,11 @@ export default function CustomerCenter({ navigation }: Props) {
         </ScrollView>
       </View>
 
+      {/* 하단 고정 버튼 */}
       <TouchableOpacity
         style={[styles.footerButton, { marginBottom: insets.bottom + 20 }]}
         onPress={() => navigation.navigate('Inquiry')}
+        activeOpacity={0.9}
       >
         <Text style={styles.footerButtonText}>1:1 문의하기</Text>
       </TouchableOpacity>
@@ -116,34 +115,7 @@ export default function CustomerCenter({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 0,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    minHeight: 40,
-    transform: [{ translateY: -15 }],
-  },
-  leftHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  deerIconLarge: {
-    width: 50,
-    height: 50,
-    marginBottom: 3,
-    resizeMode: 'contain',
-  },
-  headerTitle: {
-    fontSize: 23,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-
-  bodyPullUp: {
+  body: {
     flex: 1,
   },
 
@@ -154,8 +126,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: '#ccc',
-    borderRadius: 24,
+    borderRadius: 15,
     height: 40,
+    backgroundColor: '#fff',
   },
   searchInput: {
     flex: 1,
@@ -204,6 +177,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
+
   footerButton: {
     marginHorizontal: 16,
     backgroundColor: '#FEBA15',

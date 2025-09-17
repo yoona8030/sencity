@@ -29,12 +29,12 @@ import {
   useNavigation,
   RouteProp,
 } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { animalImages } from '../utils/animalImages';
 import type { TabParamList } from '../navigation/TabNavigator';
 import { getJSON } from '../api/client';
-import { PieChart } from 'react-native-gifted-charts/dist/PieChart'; // ✅ 추가: 도넛 차트
+import { PieChart } from 'react-native-gifted-charts/dist/PieChart';
 
+const H_PADDING = 16;
 type TabLabel = 'stats' | 'history';
 
 function getDateRange(period: string) {
@@ -83,6 +83,9 @@ type ReportItemAPI =
   | any;
 
 export default function Report() {
+  // 네이티브 헤더(그룹4: 중앙 20) 아래 간격
+  const TAB_TOP_GAP = 0;
+
   const [activeTab, setActiveTab] = useState<'신고 통계' | '기록 조회'>(
     '신고 통계',
   );
@@ -97,6 +100,7 @@ export default function Report() {
   const focusParam = route.params?.focus as 'stats' | 'history' | undefined;
   const trigger = route.params?._t;
 
+  // 외부에서 탭 지정
   useEffect(() => {
     if (focusParam === 'history') setActiveTab('기록 조회');
     if (focusParam === 'stats') setActiveTab('신고 통계');
@@ -129,6 +133,7 @@ export default function Report() {
     [],
   );
 
+  // 공통 팔레트 (도넛 + 스택바)
   const COLORS = ['#FFF4DA', '#FFDE8E', '#FFCD52', '#F6A800', '#C3AB72'];
 
   const Legend = ({ items }: { items: AnimalStat[] }) => {
@@ -153,21 +158,28 @@ export default function Report() {
     );
   };
 
-  /* ========= 도넛 차트 (gifted-charts 사용) ========= */
+  /* ========= 도넛 차트 ========= */
   const DonutChart = () => {
     const [data, setData] = useState<AnimalStat[]>([]);
     const [loading, setLoading] = useState(true);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     useEffect(() => {
       const fetchData = async () => {
         try {
+          setErrorMsg(null);
           const json = await getJSON<any>('/reports/stats/animal/');
           const arr: AnimalStat[] = Array.isArray(json)
             ? json
             : json?.data ?? [];
           setData(arr);
-        } catch (err) {
-          console.error('[stats/animal] error:', err);
+        } catch (err: any) {
+          setErrorMsg(
+            err?.message?.includes('세션')
+              ? '세션이 만료되었습니다. 다시 로그인하세요.'
+              : '데이터를 불러오지 못했습니다.',
+          );
+          setData([]);
         } finally {
           setLoading(false);
         }
@@ -187,7 +199,7 @@ export default function Report() {
     const etcItem = sorted.find(d => d.animal === '기타');
     const nonEtc = sorted.filter(d => d.animal !== '기타');
 
-    let finalData: AnimalStat[];
+    let finalData: AnimalStat[] = [];
     if (etcItem) {
       finalData = [...nonEtc.slice(0, 4), etcItem];
     } else {
@@ -198,8 +210,20 @@ export default function Report() {
         othersSum > 0 ? [...top4, { animal: '기타', count: othersSum }] : top4;
     }
 
-    const total = finalData.reduce((s, d) => s + d.count, 0);
+    if (finalData.length === 0) {
+      return (
+        <View style={styles.chartSection}>
+          <Text style={styles.sectionTitle}>동물별 신고 건수</Text>
+          <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+            <Text style={{ color: '#666', marginBottom: 6 }}>
+              {errorMsg ?? '표시할 데이터가 없습니다.'}
+            </Text>
+          </View>
+        </View>
+      );
+    }
 
+    const total = finalData.reduce((s, d) => s + d.count, 0);
     const pieData = finalData.map((item, idx) => ({
       value: item.count,
       color: COLORS[idx % COLORS.length],
@@ -209,13 +233,11 @@ export default function Report() {
       <View style={styles.chartSection}>
         <Text style={styles.sectionTitle}>동물별 신고 건수</Text>
         <View style={styles.donutRow}>
-          {/* 실제 도넛 차트 */}
           <PieChart
             data={pieData}
             donut
-            radius={90}
-            innerRadius={55}
-            // 중앙 텍스트
+            radius={95}
+            innerRadius={45}
             centerLabelComponent={() => (
               <View style={{ alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={{ fontSize: 12, color: '#444' }}>총합</Text>
@@ -227,14 +249,13 @@ export default function Report() {
               </View>
             )}
           />
-          {/* 범례 */}
           <Legend items={finalData} />
         </View>
       </View>
     );
   };
 
-  /* ========= 스택 바 차트 (View만 사용) ========= */
+  /* ========= 스택 바 차트 ========= */
   const StackedBarChart: React.FC = () => {
     const [data, setData] = useState<RegionByAnimal[]>([]);
     const [loading, setLoading] = useState(true);
@@ -534,38 +555,40 @@ export default function Report() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>신고 통계 및 기록 조회</Text>
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === '신고 통계' && styles.activeTab]}
-            onPress={() => setActiveTab('신고 통계')}
+      {/* 네이티브 헤더(“신고”) 아래 여백만 — 내부 타이틀 없음 */}
+      <View style={{ height: TAB_TOP_GAP }} />
+
+      {/* 탭 바 (얇은 하단선 + 활성 탭만 굵은 언더라인) */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === '신고 통계' && styles.activeTab]}
+          onPress={() => setActiveTab('신고 통계')}
+        >
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === '신고 통계' && styles.activeTabText,
+            ]}
           >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === '신고 통계' && styles.activeTabText,
-              ]}
-            >
-              신고 통계
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === '기록 조회' && styles.activeTab]}
-            onPress={() => setActiveTab('기록 조회')}
+            신고 통계
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === '기록 조회' && styles.activeTab]}
+          onPress={() => setActiveTab('기록 조회')}
+        >
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === '기록 조회' && styles.activeTabText,
+            ]}
           >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === '기록 조회' && styles.activeTabText,
-              ]}
-            >
-              기록 조회
-            </Text>
-          </TouchableOpacity>
-        </View>
+            기록 조회
+          </Text>
+        </TouchableOpacity>
       </View>
 
+      {/* 본문 */}
       <View style={styles.content}>
         {activeTab === '신고 통계' ? (
           <>
@@ -577,6 +600,7 @@ export default function Report() {
         )}
       </View>
 
+      {/* 바텀시트 오버레이 */}
       <View pointerEvents="box-none" style={styles.overlayHost}>
         <BottomSheet
           ref={bottomSheetRef}
@@ -665,30 +689,22 @@ export default function Report() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 25,
-    paddingBottom: 0,
-    backgroundColor: '#FFFFFF',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginTop: 1,
-    marginBottom: 15,
-    color: '#000000',
-  },
+
+  // ── 네이티브 헤더 아래 붙는 탭 바
   tabContainer: {
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: H_PADDING, // ⬅️ 좌우 여백
   },
   tab: { flex: 1, paddingVertical: 15, alignItems: 'center' },
   activeTab: { borderBottomWidth: 2, borderBottomColor: '#000000' },
   tabText: { fontSize: 16, color: '#A9A9A9' },
   activeTabText: { color: '#000000', fontWeight: '600' },
+
   content: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
+
   chartSection: { marginBottom: 60 },
   sectionTitle: {
     fontSize: 16,
@@ -706,6 +722,7 @@ const styles = StyleSheet.create({
   legendItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   legendColor: { width: 12, height: 12, borderRadius: 6, marginRight: 6 },
   legendText: { fontSize: 14, color: '#000' },
+
   barChartSection: { marginBottom: 40 },
   barChartWrapper: {
     height: 200,
@@ -744,15 +761,10 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#ccc',
   },
+
+  // 기록 조회
   recordContainer: { flex: 1 },
   searchSection: { marginBottom: 20 },
-  sheetHeader: { alignItems: 'center', marginBottom: 12 },
-  sheetTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
-    textAlign: 'center',
-  },
   searchTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -792,6 +804,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   dropdownArrow: { color: '#2B2B2B', fontSize: 12 },
+
   recordList: { flex: 1 },
   recordItem: {
     flexDirection: 'row',
@@ -831,6 +844,8 @@ const styles = StyleSheet.create({
     color: '#666666',
     marginTop: 50,
   },
+
+  // 바텀시트 오버레이
   overlayHost: {
     ...RNStyleSheet.absoluteFillObject,
     zIndex: 9999,
@@ -856,6 +871,13 @@ const styles = StyleSheet.create({
   chipSelected: { backgroundColor: '#D2D2D2', borderColor: '#D2D2D2' },
   chipText: { fontSize: 13, color: '#333', fontWeight: '600' },
   chipTextSelected: { color: '#222', fontWeight: '800' },
+  sheetHeader: { alignItems: 'center', marginBottom: 12 },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
+    textAlign: 'center',
+  },
   sheetActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',

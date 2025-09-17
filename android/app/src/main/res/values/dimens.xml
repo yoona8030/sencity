@@ -1,0 +1,4 @@
+<resources>
+    <dimen name="bootsplash_logo_max_width">260dp</dimen>
+    <dimen name="bootsplash_logo_max_height">260dp</dimen>
+</resources>

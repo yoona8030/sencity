@@ -1,7 +1,7 @@
+// src/navigation/TabNavigator.tsx
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { NavigatorScreenParams } from '@react-navigation/native';
 
 import Home from '../screens/Home';
 import Camera from '../screens/Camera';
@@ -9,7 +9,6 @@ import Map from '../screens/Map';
 import Mypage from '../screens/Mypage';
 import Report from '../screens/Report';
 
-// 탭 파라미터 타입
 export type TabParamList = {
   Home: undefined;
   Camera: undefined;
@@ -26,39 +25,37 @@ export default function TabNavigator() {
   return (
     <Tab.Navigator
       initialRouteName="Home"
+      detachInactiveScreens={false}
       screenOptions={({ route }) => ({
+        // 기본: 헤더 숨김 → 화면별 옵션에서 켜기 (그룹 4용)
         headerShown: false,
 
-        // ✅ 하단 안전영역을 0으로 강제 — 하얀 공백 제거 핵심
+        // 하단 안전영역 여백 제거
         safeAreaInsets: { bottom: 0 },
 
-        // ✅ 씬 배경도 투명 — 시스템 바가 잠깐 나타나도 흰 바탕이 비치지 않게
-        sceneContainerStyle: { backgroundColor: 'transparent' },
+        // 배경 깜빡임 방지
+        sceneContainerStyle: { backgroundColor: '#0E0E0E' },
 
-        // 키보드 올라올 때 탭 바 자동 숨김
         tabBarHideOnKeyboard: true,
 
-        // ✅ 탭 바를 화면 바닥에 절대 배치 + 불필요 여백 제거
         tabBarStyle: {
           position: 'absolute',
           left: 0,
           right: 0,
           bottom: 0,
-          height: 65, // 필요 시 조절
+          height: 65,
           paddingTop: 6,
-          paddingBottom: 8, // 필요 시 0~8 사이 조절
+          paddingBottom: 8,
           borderTopWidth: 0.5,
           borderTopColor: '#CCC',
           backgroundColor: '#FFFFFF',
-          elevation: 8, // 안드로이드 그림자
+          elevation: 8,
         },
 
         tabBarLabelStyle: { fontSize: 11 },
-
         tabBarActiveTintColor: '#DD0000',
         tabBarInactiveTintColor: 'gray',
 
-        // 아이콘 매핑
         tabBarIcon: ({ color, size, focused }) => {
           let name: string = 'home-outline';
           switch (route.name) {
@@ -82,11 +79,68 @@ export default function TabNavigator() {
         },
       })}
     >
-      <Tab.Screen name="Map" component={Map} />
-      <Tab.Screen name="Report" component={Report} />
-      <Tab.Screen name="Home" component={Home} />
-      <Tab.Screen name="Camera" component={Camera} />
-      <Tab.Screen name="Mypage" component={Mypage} />
+      {/* 그룹 3: 지도 — 화면 내부에서 검색바/버튼 헤더 처리 */}
+      <Tab.Screen
+        name="Map"
+        component={Map}
+        options={{
+          headerShown: false, // 타이틀 X (화면 내부 커스텀)
+        }}
+      />
+
+      {/* 그룹 4: 신고 — 중앙 타이틀 20 (통일) */}
+      <Tab.Screen
+        name="Report"
+        component={Report}
+        options={{
+          headerShown: true,
+          headerTitle: '신고 통계 및 기록 조회 ',
+          headerTitleAlign: 'center',
+          headerShadowVisible: false,
+          headerTransparent: false,
+          headerStyle: { backgroundColor: '#fff' },
+        }}
+      />
+
+      {/* 그룹 2: 홈 — 타이틀 20 + 날짜/시간 14는 화면 내부에서 구현 */}
+      <Tab.Screen
+        name="Home"
+        component={Home}
+        options={{
+          headerShown: false, // 홈 화면 자체 커스텀 헤더 사용
+        }}
+      />
+
+      {/* (카메라는 정책에 따라 자유 — 여기선 숨김 유지) */}
+      <Tab.Screen
+        name="Camera"
+        component={Camera}
+        options={{
+          headerShown: false,
+        }}
+      />
+
+      {/* 그룹 4: 마이페이지 — 중앙 타이틀 20 (통일) */}
+      <Tab.Screen
+        name="Mypage"
+        component={Mypage}
+        options={({ navigation }) => ({
+          headerShown: true,
+          headerTitle: '마이페이지',
+          headerTitleAlign: 'center',
+          headerShadowVisible: false, // 아래 선/그림자 제거
+          headerStyle: { backgroundColor: '#fff' },
+          headerRight: () => (
+            <Ionicons
+              name="notifications-outline"
+              size={22}
+              color="#000"
+              onPress={() => navigation.navigate('Notification' as never)}
+              style={{ paddingRight: 12 }}
+            />
+          ),
+        })}
+      />
     </Tab.Navigator>
   );
 }

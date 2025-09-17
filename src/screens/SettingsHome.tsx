@@ -5,7 +5,10 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -16,16 +19,17 @@ const HEADER_ICON_SIZE = 24;
 
 // ✅ rows를 Row[]로 고정 (satisfies 또는 명시적 타입 사용)
 const rows = [
-  { label: '화면 스타일 · 폰트 설정', route: 'SettingsStyle' },
-  { label: '알림 설정' },
+  { label: '알림 설정', route: 'SettingsNotifications' },
   { label: '지도 · 위치 설정', route: 'SettingsLocation' },
-  { label: '데이터 · 저장공간' },
-  { label: '오프라인 모드' },
-  { label: '개인정보 · 권한' },
-  { label: '앱 정보' },
+  { label: '데이터 · 저장공간', route: 'SettingsDataStorage' },
+  { label: '오프라인 모드', route: 'SettingsOffline' },
+  { label: '개인정보 · 권한', route: 'SettingsPrivacy' },
+  { label: '앱 정보', route: 'SettingsAppInfo' },
 ] as const satisfies readonly Row[];
 
 export default function SettingsHome() {
+  const insets = useSafeAreaInsets();
+  const EXTRA_TOP = 4; // ← “조금” 내리고 싶을 때 6~12 사이로 조절
   const navigation = useNavigation<Nav>();
 
   const go = (route?: keyof RootStackParamList) => {
@@ -40,15 +44,6 @@ export default function SettingsHome() {
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
-      {/* 헤더: 중앙 타이틀 + 우측 X (상단에 더 붙도록 height 낮춤) */}
-      <View style={styles.header}>
-        <View style={styles.side} />
-        <Text style={styles.headerTitle}>설정</Text>
-        <Pressable onPress={close} hitSlop={12} style={styles.side}>
-          <Ionicons name="close" size={HEADER_ICON_SIZE} color="#000" />
-        </Pressable>
-      </View>
-
       {/* ✅ FlatList<Row> 로 타입 고정 */}
       <FlatList<Row>
         data={rows as readonly Row[]}
@@ -71,20 +66,6 @@ export default function SettingsHome() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
-  header: {
-    paddingHorizontal: 16,
-    height: 48, // 살짝 낮춰 상단에 더 붙이기
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  side: { width: 32, alignItems: 'flex-end', justifyContent: 'center' },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
-  },
   sectionLabel: {
     paddingHorizontal: 16,
     paddingTop: 10,

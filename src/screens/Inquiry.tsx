@@ -13,12 +13,14 @@ import {
   Platform,
   UIManager,
   Pressable,
+  StyleSheet as RNStyleSheet,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
+import Checkbox from '../components/Checkbox';
 
 export const BACKEND_URL = 'http://127.0.0.1:8000/api';
 
@@ -314,20 +316,6 @@ export default function Inquiry() {
   /* ===== UI ===== */
   return (
     <SafeAreaView style={st.container}>
-      {/* 헤더 */}
-      <View style={st.header}>
-        <View style={st.headerLeft}>
-          <Image
-            source={require('../../assets/images/logo.png')}
-            style={st.headerLogo}
-          />
-          <Text style={st.headerTitle}>문의하기</Text>
-        </View>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Icon name="close" size={24} color="#000" />
-        </TouchableOpacity>
-      </View>
-
       {/* DEV 배너: 권한 문제 있을 때만 노출 */}
       {__DEV__ && authProblem !== 'none' && (
         <View style={st.devBanner}>
@@ -361,25 +349,30 @@ export default function Inquiry() {
       )}
 
       {/* 탭 */}
-      <View style={st.tabBar}>
-        <TouchableOpacity
-          style={[st.tab, tab === 'form' && st.tabActive]}
-          onPress={() => setTab('form')}
-          activeOpacity={0.9}
-        >
-          <Text style={[st.tabText, tab === 'form' && st.tabTextActive]}>
-            문의하기
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[st.tab, tab === 'history' && st.tabActive]}
-          onPress={() => setTab('history')}
-          activeOpacity={0.9}
-        >
-          <Text style={[st.tabText, tab === 'history' && st.tabTextActive]}>
-            문의내역 확인
-          </Text>
-        </TouchableOpacity>
+      {/* 탭바 전체 래퍼 (여기서 좌우 여백을 줘서 화면과 살짝 떨어지게) */}
+      <View style={st.tabBarWrap}>
+        {/* 실제 탭 버튼들 */}
+        <View style={st.tabBar}>
+          <TouchableOpacity
+            style={[st.tab, tab === 'form' && st.tabActive]}
+            onPress={() => setTab('form')}
+            activeOpacity={0.9}
+          >
+            <Text style={[st.tabText, tab === 'form' && st.tabTextActive]}>
+              문의하기
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[st.tab, tab === 'history' && st.tabActive]}
+            onPress={() => setTab('history')}
+            activeOpacity={0.9}
+          >
+            <Text style={[st.tabText, tab === 'history' && st.tabTextActive]}>
+              문의내역 확인
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* 콘텐츠 */}
@@ -486,31 +479,39 @@ export default function Inquiry() {
 
           {/* 하단 */}
           <View style={st.bottomBar}>
-            <View style={st.agreeRow}>
-              {/* 커스텀 체크박스 (외부 라이브러리 제거) */}
-              <Pressable
-                onPress={() => setAgree(v => !v)}
-                hitSlop={8}
-                style={({ pressed }) => [
-                  st.checkboxBase,
-                  agree && st.checkboxOn,
-                  pressed && { opacity: 0.9 },
-                ]}
-              >
-                {agree ? (
-                  <Icon name="checkmark" size={16} color="#fff" />
-                ) : null}
-              </Pressable>
-              <Text style={st.agreeText}>개인정보 수집 및 이용</Text>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                marginTop: 12,
+              }}
+            >
+              <Checkbox
+                checked={agree} // ⬅ 네 컴포넌트가 value/isChecked면 그 이름으로 바꿔줘
+                onChange={setAgree} // ⬅ onValueChange/onPress 등 네 API에 맞춰 교체
+              />
+              <Text style={{ marginLeft: 8, color: '#333' }}>
+                개인정보 수집·이용에 동의합니다.
+              </Text>
             </View>
 
             <TouchableOpacity
-              disabled={!canSubmit}
-              onPress={submit}
-              style={[st.submitBtn, { backgroundColor: submitBgColor }]}
-              activeOpacity={0.9}
+              disabled={!agree}
+              style={{
+                marginTop: 16,
+                height: 48,
+                borderRadius: 8,
+                justifyContent: 'center',
+                alignItems: 'center',
+                backgroundColor: agree ? '#FEBA15' : '#E1E1E1',
+              }}
+              onPress={() => {
+                /* 제출 로직 */
+              }}
             >
-              <Text style={st.submitText}>문의 접수</Text>
+              <Text style={{ color: '#fff', fontWeight: '700' }}>
+                문의 보내기
+              </Text>
             </TouchableOpacity>
           </View>
         </>
@@ -605,19 +606,6 @@ export default function Inquiry() {
 /* ===== 스타일 ===== */
 const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-
-  header: {
-    paddingTop: 8,
-    paddingBottom: 8,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerLeft: { flexDirection: 'row', alignItems: 'center' },
-  headerLogo: { width: 50, height: 50, resizeMode: 'contain', marginRight: 8 },
-  headerTitle: { fontSize: 23, fontWeight: '700', color: '#111' },
-
   /* DEV banner */
   devBanner: {
     paddingHorizontal: 16,
@@ -636,7 +624,11 @@ const st = StyleSheet.create({
     borderRadius: 6,
   },
   devLoginBtnText: { fontSize: 12, fontWeight: '700', color: '#7A4B00' },
-
+  tabBarWrap: {
+    position: 'relative',
+    marginHorizontal: 16, // ← 여백 조절 지점
+    paddingTop: 4,
+  },
   tabBar: {
     flexDirection: 'row',
     paddingHorizontal: 16,
@@ -657,7 +649,6 @@ const st = StyleSheet.create({
     textAlign: 'center',
   },
   tabTextActive: { color: '#111' },
-
   formArea: {
     flex: 1,
     paddingHorizontal: 16,

@@ -1,5 +1,5 @@
-// NotificationScreen.tsx
-import React, { useEffect, useMemo, useState } from 'react';
+// src/screens/NotificationScreen.tsx
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   StyleSheet,
@@ -7,13 +7,20 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/RootNavigator';
+import {
+  useSafeAreaInsets,
+  SafeAreaView,
+} from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+type Nav = NativeStackNavigationProp<RootStackParamList, 'Notification'>;
 
 const BACKEND_URL = 'http://127.0.0.1:8000/api';
 
-/** 토큰 유틸 */
+/* ----------------------------- Auth utils ----------------------------- */
 async function refreshAccessToken() {
   const refreshToken = await AsyncStorage.getItem('refreshToken');
   if (!refreshToken) throw new Error('No refresh token');
@@ -36,6 +43,7 @@ async function authFetch(
   init: { method?: string; headers?: Record<string, string>; body?: any } = {},
 ) {
   const access = await AsyncStorage.getItem('accessToken');
+
   const doFetch = async (token: string | null) => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -44,6 +52,7 @@ async function authFetch(
     };
     return fetch(url, { ...init, headers });
   };
+
   let res = await doFetch(access);
   if (res.status === 401) {
     try {
@@ -54,14 +63,12 @@ async function authFetch(
   return res;
 }
 
+/* --------------------------- Small helpers ---------------------------- */
 const normalizeNL = (s: any) =>
   String(s ?? '')
-    // 역슬래시+n 패턴 "\\n" -> 실제 개행
     .replace(/\\n/g, '\n')
-    // 윈도우 스타일 개행 표준화
     .replace(/\r\n/g, '\n');
 
-/** 그룹 공지 타이틀 */
 const buildGroupTitle = (g: any) => {
   const typeMap: Record<string, string> = {
     maintenance: '서비스 점검 안내',
@@ -87,7 +94,6 @@ const buildGroupTitle = (g: any) => {
     g?.content ?? ''
   }`.toLowerCase();
 
-  // 1) 서비스 정상화/장애
   if (/(복구|정상화|recovered|recovery|restored|resolved)/.test(hay))
     return '서비스 정상화 안내';
   if (
@@ -97,7 +103,6 @@ const buildGroupTitle = (g: any) => {
   )
     return '서비스 장애 안내';
 
-  // 2) 기상 악화 주의
   const weatherHit =
     /(태풍|호우|폭우|강풍|폭설|대설|적설|한파|폭염|미세먼지|초미세먼지|황사|우천|우박|비바람|기상\s*특보|bad\s*weather|storm|typhoon|hail|hailstorm|heavy\s*(rain|snow)|snow\s*accumulation|strong\s*wind|heat\s*wave|cold\s*wave|fine\s*dust)/i.test(
       hay,
@@ -114,23 +119,19 @@ const buildGroupTitle = (g: any) => {
     return '기상 악화 주의 안내';
   if (weatherHit) return '기상 관련 안내';
 
-  // 3) 동물 공격성 증가 주의
   const aggressionHit =
     /(공격성|공격적|사납|위협적|aggressive|attack(s)?|biting|charging)/.test(
       hay,
     ) && /(증가|높아졌|상승|급증|spike|uptick|빈번|더\s*자주)/.test(hay);
   if (aggressionHit) return '동물 공격성 증가 주의';
 
-  // 4) 신고 급증 주의
   const reportSurgeHit =
     /(신고|제보|report(s)?)/.test(hay) &&
     /(다수|급증|폭증|많음|많이|many|surge|spike|sudden\s*increase)/.test(hay);
   if (reportSurgeHit) return '신고 급증 주의';
 
-  // 5) 일반 주의/위험
   if (cautionHit) return '주의/위험 안내';
 
-  // 6) 위치 정보 오류 수정
   if (
     /(위치|gps|좌표|geolocation|location|정확도)/.test(hay) &&
     /(수정|해결|고침|fix|fixed|patch|정정|보완|버그\s*수정|오류\s*수정)/.test(
@@ -139,7 +140,6 @@ const buildGroupTitle = (g: any) => {
   )
     return '위치 정보 오류 수정 안내';
 
-  // 7) 신규 기능/점검/업데이트/정책/이벤트
   if (
     /(신규\s*기능|새로운\s*기능|feature|기능\s*추가|added|add(ed)?\s+feature|beta\s+feature)/.test(
       hay,
@@ -152,7 +152,6 @@ const buildGroupTitle = (g: any) => {
   if (/(정책|약관|privacy|policy)/.test(hay)) return '정책 변경 안내';
   if (/(이벤트|event|캠페인|campaign)/.test(hay)) return '이벤트 안내';
 
-  // 8) 산불
   const wildfireHit =
     /(산불|산림\s*화재|임야\s*화재|들불|forest\s*fire|wild\s*fire|bush\s*fire)/.test(
       hay,
@@ -162,7 +161,6 @@ const buildGroupTitle = (g: any) => {
     );
   if (wildfireHit) return '산불 주의 안내';
 
-  // 9) 환경
   const cleanupHit = /(정화\s*활동|클린업|clean[-\s]?up|cleanup)/.test(hay);
   const litterHit =
     /(쓰레기|무단\s*투기|illegal\s*dumping|litter|trash|garbage|waste|폐기물|담배꽁초|플라스틱|비닐|재활용|recycl(e|ing))/.test(
@@ -180,7 +178,6 @@ const buildGroupTitle = (g: any) => {
   return g?.title?.trim() ? g.title : '공지';
 };
 
-/** 상태 라벨 */
 function labelStatus(sc?: string | null) {
   if (!sc) return '-';
   const map: Record<string, string> = {
@@ -191,7 +188,6 @@ function labelStatus(sc?: string | null) {
   return map[sc] || sc;
 }
 
-/** 날짜 포맷 */
 function fmt(dt?: string | null) {
   if (!dt) return '';
   try {
@@ -205,7 +201,7 @@ function fmt(dt?: string | null) {
   }
 }
 
-/** report_id → 최신 피드백 1줄(없으면 '') */
+/** report_id 배열 → 최신 피드백 한 줄씩 맵 */
 async function fetchOneFeedbackByReportIds(reportIds: number[]) {
   const uniq = Array.from(
     new Set(reportIds.filter(v => Number.isFinite(v) && v > 0)),
@@ -232,17 +228,73 @@ async function fetchOneFeedbackByReportIds(reportIds: number[]) {
   return map;
 }
 
+/* --------------------------- HeaderTabs UI ---------------------------- */
+function HeaderTabs({
+  value,
+  onChange,
+}: {
+  value: 'group' | 'individual';
+  onChange: (v: 'group' | 'individual') => void;
+}) {
+  return (
+    <View style={styles.headerTabsWrap}>
+      {(['group', 'individual'] as const).map(v => {
+        const active = value === v;
+        return (
+          <TouchableOpacity
+            key={v}
+            onPress={() => onChange(v)}
+            style={[styles.tabBtn, active && styles.tabBtnActive]}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={[styles.tabText, active && styles.tabTextActive]}>
+              {v === 'group' ? '전체 공지' : '내 알림'}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+/* --------------------------- Main Screen ------------------------------ */
 export default function NotificationScreen() {
-  const [selectedTab, setSelectedTab] = useState<'all' | 'personal'>('all');
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const navigation = useNavigation<Nav>();
+  const route = useRoute<any>();
+  const insets = useSafeAreaInsets();
+
+  // 초기 탭은 route 파라미터 우선
+  const routeTab: 'group' | 'individual' = route.params?.tab ?? 'group';
+  const [tab, setTab] = useState<'group' | 'individual'>(routeTab);
+
   const [groupNotices, setGroupNotices] = useState<any[]>([]);
   const [personalNotices, setPersonalNotices] = useState<any[]>([]);
-  const navigation = useNavigation();
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
+  // 헤더에 탭 UI 배치 + 동기화
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <HeaderTabs
+          value={tab}
+          onChange={v => navigation.setParams({ tab: v })}
+        />
+      ),
+      headerShadowVisible: false,
+      headerStyle: { backgroundColor: '#fff' },
+    });
+  }, [navigation, tab]);
+
+  // route.params.tab 변경되면 화면 상태 동기화
+  useEffect(() => {
+    if (tab !== routeTab) setTab(routeTab);
+  }, [routeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 최초 로딩: 두 리스트 모두 불러옴
   useEffect(() => {
     (async () => {
       try {
-        // 전체 공지
+        // 1) 전체 공지 (비인증)
         const g = await fetch(`${BACKEND_URL}/notifications/?type=group`);
         let groupList: any[] = [];
         try {
@@ -253,26 +305,26 @@ export default function NotificationScreen() {
         }
         setGroupNotices(groupList);
 
-        // 내 알림
+        // 2) 내 알림 (인증)
         const n = await authFetch(
           `${BACKEND_URL}/notifications/?type=individual&scope=mine`,
         );
-        let list: any[] = [];
+        let rawList: any[] = [];
         try {
           const nj = await n.json();
-          list = Array.isArray(nj) ? nj : nj?.results ?? [];
+          rawList = Array.isArray(nj) ? nj : nj?.results ?? [];
         } catch {
-          list = [];
+          rawList = [];
         }
 
-        // report_id별 피드백 1줄 확보
-        const rids = list
+        // report_id → 최신 피드백 한 줄
+        const rids = rawList
           .map(x => Number(x.report_id))
           .filter(v => Number.isFinite(v) && v > 0);
         const fbMap = await fetchOneFeedbackByReportIds(rids);
 
-        // 화면용 데이터(제목/상세 동일 소스 + 내용은 1줄만)
-        const normalized = list.map(it => {
+        // 화면용 가공
+        const normalized = rawList.map(it => {
           const username =
             it?.user_name ||
             it?.user?.first_name ||
@@ -282,7 +334,6 @@ export default function NotificationScreen() {
             it?.animal_name || it?.report?.animal?.name_kor || '미상';
           const rid = Number(it?.report_id) || null;
 
-          // 표시할 본문: feedback(있으면) 1줄, 아니면 reply 1줄
           const feedbackOne = rid != null ? fbMap[String(rid)] || '' : '';
           const replyOne = String(it?.reply || '').trim();
           const detailText = normalizeNL(replyOne || feedbackOne);
@@ -308,46 +359,24 @@ export default function NotificationScreen() {
   }, []);
 
   const data = useMemo(
-    () => (selectedTab === 'all' ? groupNotices : personalNotices),
-    [selectedTab, groupNotices, personalNotices],
+    () => (tab === 'group' ? groupNotices : personalNotices),
+    [tab, groupNotices, personalNotices],
   );
 
   return (
-    <View style={styles.container}>
-      {/* 헤더 */}
-      <View style={styles.header}>
-        <View style={styles.tabContainer}>
-          <TouchableOpacity onPress={() => setSelectedTab('all')}>
-            <Text
-              style={[styles.tab, selectedTab === 'all' && styles.activeTab]}
-            >
-              전체 공지
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setSelectedTab('personal')}>
-            <Text
-              style={[
-                styles.tab,
-                selectedTab === 'personal' && styles.activeTab,
-              ]}
-            >
-              내 알림
-            </Text>
-          </TouchableOpacity>
-        </View>
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Icon name="close-outline" size={28} color="black" />
-        </TouchableOpacity>
-      </View>
-
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <FlatList
         data={data}
         keyExtractor={(item, idx) => String(item?.id ?? idx)}
+        ListEmptyComponent={() => (
+          <View style={{ padding: 16 }}>
+            <Text style={{ color: '#666' }}>
+              {tab === 'group' ? '공지 없음' : '내 알림 없음'}
+            </Text>
+          </View>
+        )}
         renderItem={({ item }) => {
-          if (selectedTab === 'all') {
+          if (tab === 'group') {
             return (
               <View style={styles.noticeItem}>
                 <Text style={styles.noticeTitle}>{buildGroupTitle(item)}</Text>
@@ -369,44 +398,50 @@ export default function NotificationScreen() {
               <Text style={styles.noticeDate}>{fmt(item.created_at)}</Text>
 
               {isExpanded && (
-                <>
+                <View>
                   <Text style={styles.meta}>
                     동물: {item.animal} · 신고 ID: {item.report_id ?? '-'}
                   </Text>
                   <Text style={styles.meta}>상태: {item.status_text}</Text>
-
                   {item.detailText ? (
                     <Text style={styles.feedbackText}>{item.detailText}</Text>
                   ) : null}
-                </>
+                </View>
               )}
             </TouchableOpacity>
           );
         }}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  header: {
+
+  headerTabsWrap: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    backgroundColor: '#F1F1F1',
+    padding: 4,
+    borderRadius: 16,
   },
-  tabContainer: { flexDirection: 'row' },
-  tab: { marginHorizontal: 20, fontSize: 16, color: '#888' },
-  activeTab: {
-    color: 'black',
-    fontWeight: 'bold',
-    borderBottomWidth: 2,
-    borderBottomColor: 'black',
+  tabBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 12,
   },
-  closeButton: { position: 'absolute', right: 16 },
+  tabBtnActive: {
+    backgroundColor: '#fff',
+  },
+  tabText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '600',
+  },
+  tabTextActive: {
+    color: '#000',
+  },
+
   noticeItem: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
   noticeTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 4 },
   noticeContent: { fontSize: 14, color: '#444', marginTop: 6, lineHeight: 20 },

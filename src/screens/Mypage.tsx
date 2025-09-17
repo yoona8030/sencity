@@ -1,7 +1,6 @@
 // src/screens/Mypage.tsx
 import React, { useState, useEffect } from 'react';
 import {
-  SafeAreaView,
   View,
   Text,
   StyleSheet,
@@ -19,6 +18,7 @@ import { useNavigation, CommonActions } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { useAppAlert } from '../components/AppAlertProvider';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   check,
@@ -209,19 +209,7 @@ const Mypage: React.FC = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* 헤더 */}
-      <View style={styles.titleContainer}>
-        <Text style={styles.titleText}>마이페이지</Text>
-        <TouchableOpacity
-          style={styles.headerIconBtn}
-          onPress={() => navigation.navigate('Notification' as never)}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Icon name="notifications-outline" size={24} color="black" />
-        </TouchableOpacity>
-      </View>
-
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       {/* 프로필 */}
       <View style={styles.profileSection}>
         <Image
@@ -357,39 +345,15 @@ const Mypage: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-
-  titleContainer: {
-    position: 'relative',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginVertical: 10,
-  },
-  titleText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginTop: 20,
-    marginRight: 8,
-    textAlign: 'center',
-    flex: 1,
-    color: '#000000',
-  },
-  headerIconBtn: {
-    position: 'absolute',
-    right: 16,
-    top: 20,
-    padding: 4,
-  },
-
   profileSection: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+    marginTop: -10,
   },
   avatar: { width: 60, height: 60, borderRadius: 30 },
   profileInfo: { flex: 1, marginLeft: 12 },
