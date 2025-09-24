@@ -1,59 +1,89 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.google.gms.google-services"
 
-react {
-    /* Autolinking */
-    autolinkLibrariesWithApp()
-}
-
-def enableProguardInReleaseBuilds = false
+react { autolinkLibrariesWithApp() }
 
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
-    ndkVersion rootProject.ext.ndkVersion
-    buildToolsVersion rootProject.ext.buildToolsVersion
-    compileSdk rootProject.ext.compileSdkVersion
+  // ✅ AGP 8에서는 buildToolsVersion 지정 불필요(제거)
+  // buildToolsVersion rootProject.ext.buildToolsVersion
 
-    namespace "com.sencity"
-    defaultConfig {
-        applicationId "com.sencity"
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+  ndkVersion = rootProject.ext.ndkVersion
+  compileSdk = rootProject.ext.compileSdkVersion
+  namespace = "com.sencity"
+
+  defaultConfig {
+    applicationId = "com.sencity"
+    minSdkVersion = rootProject.ext.minSdkVersion
+    targetSdkVersion = rootProject.ext.targetSdkVersion
+    versionCode = 1
+    versionName = "1.0"
+  }
+
+  signingConfigs {
+    debug {
+      storeFile = file('debug.keystore')
+      storePassword = 'android'
+      keyAlias = 'androiddebugkey'
+      keyPassword = 'android'
     }
-    signingConfigs {
-        debug {
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
-        }
+    // (배포용 만들면 여기 release 추가)
+  }
+
+  buildTypes {
+    debug {
+      signingConfig = signingConfigs.debug
+      minifyEnabled = false
+      shrinkResources = false
     }
-    buildTypes {
-        debug {
-            signingConfig signingConfigs.debug
-        }
-        release {
-            signingConfig signingConfigs.debug
-            minifyEnabled enableProguardInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-        }
+    release {
+      // ⬇️ 배포 시 release 키로 교체
+      signingConfig = signingConfigs.debug
+
+      // shrinkResources 활성화하려면 minifyEnabled 반드시 true
+      minifyEnabled = true
+      shrinkResources = true
+
+      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
     }
+  }
+
+  // (선택) 중복 META-INF로 인한 packageDebug 실패 방지
+  packagingOptions {
+    resources {
+      excludes += [
+        'META-INF/LICENSE*',
+        'META-INF/NOTICE*',
+        'META-INF/DEPENDENCIES',
+        'META-INF/ASL2.0'
+      ]
+    }
+  }
+
+  // (선택) Lint를 경고로만 처리하고 빌드 중단 방지
+  lint {
+    abortOnError = false
+  }
 }
 
 dependencies {
-    implementation("com.facebook.react:react-android")
-    implementation "androidx.appcompat:appcompat:1.7.0"   // <- 없으면 추가
-    implementation "androidx.core:core-splashscreen:1.0.1" // 이미 있으시면 OK
+  implementation("com.facebook.react:react-android")
+  implementation "androidx.appcompat:appcompat:1.7.0"
+  // implementation "androidx.core:core-splashscreen:1.0.1" // ⬅️ 삭제 유지
 
-    if (hermesEnabled.toBoolean()) {
-        implementation("com.facebook.react:hermes-android")
-    } else {
-        implementation jscFlavor
-    }
+  implementation platform('com.google.firebase:firebase-bom:34.2.0')
+  implementation 'com.google.firebase:firebase-analytics'
+  implementation 'com.google.firebase:firebase-messaging'
+
+  if (hermesEnabled.toBoolean()) {
+    implementation("com.facebook.react:hermes-android")
+  } else {
+    implementation jscFlavor
+  }
 }
 
 apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "679066085451",
+    "project_id": "sencity-5bd5e",
+    "storage_bucket": "sencity-5bd5e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:679066085451:android:50089f795532db7b2e85ce",
+        "android_client_info": {
+          "package_name": "com.sencity"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCdP_U3af5h_XARuSdoyY9dD98Jwt5XKDQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

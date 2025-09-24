@@ -13,6 +13,10 @@ import { AppAlertProvider } from './src/components/AppAlertProvider';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { PreferencesProvider } from './src/state/preferences';
 import RootNavigator from './src/navigation/RootNavigator';
+import {
+  ensureDefaultChannel,
+  attachForegroundFCMListener,
+} from './src/utils/notifications';
 
 const AppTheme = {
   ...DefaultTheme,
@@ -22,6 +26,16 @@ const AppTheme = {
 function AppInner() {
   const { isReady, user } = useAuth();
   const [navReady, setNavReady] = React.useState(false);
+
+  // ✅ 알림 채널 보장 + FCM 포그라운드 리스너 등록
+  React.useEffect(() => {
+    // 채널(id: "default") 생성/보장
+    ensureDefaultChannel();
+
+    // 앱이 켜져 있을 때 들어오는 푸시를 직접 표시
+    const detach = attachForegroundFCMListener();
+    return detach; // 언마운트 시 해제
+  }, []);
 
   // ⬅️ 훅은 조기 return 보다 위에!
   React.useEffect(() => {

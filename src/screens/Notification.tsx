@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import {
@@ -17,6 +18,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Notification'>;
+type Rt = RouteProp<RootStackParamList, 'Notification'>;
 
 const BACKEND_URL = 'http://127.0.0.1:8000/api';
 
@@ -43,7 +45,6 @@ async function authFetch(
   init: { method?: string; headers?: Record<string, string>; body?: any } = {},
 ) {
   const access = await AsyncStorage.getItem('accessToken');
-
   const doFetch = async (token: string | null) => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -52,7 +53,6 @@ async function authFetch(
     };
     return fetch(url, { ...init, headers });
   };
-
   let res = await doFetch(access);
   if (res.status === 401) {
     try {
@@ -137,8 +137,9 @@ const buildGroupTitle = (g: any) => {
     /(수정|해결|고침|fix|fixed|patch|정정|보완|버그\s*수정|오류\s*수정)/.test(
       hay,
     )
-  )
+  ) {
     return '위치 정보 오류 수정 안내';
+  }
 
   if (
     /(신규\s*기능|새로운\s*기능|feature|기능\s*추가|added|add(ed)?\s+feature|beta\s+feature)/.test(
@@ -170,6 +171,7 @@ const buildGroupTitle = (g: any) => {
     /(환경\s*보호|환경\s*캠페인|환경\s*오염|eco|sustainability|탄소\s*(중립|감축)|탄소\s*배출)/.test(
       hay,
     );
+
   if (cleanupHit) return '환경 정화 활동 안내';
   if (litterHit && /(주의|단속|제보|신고|경고|warning|alert)/.test(hay))
     return '쓰레기/무단 투기 주의';
@@ -229,6 +231,7 @@ async function fetchOneFeedbackByReportIds(reportIds: number[]) {
 }
 
 /* --------------------------- HeaderTabs UI ---------------------------- */
+/** 리포트 화면처럼 “검은 밑줄” 탭 */
 function HeaderTabs({
   value,
   onChange,
@@ -237,19 +240,37 @@ function HeaderTabs({
   onChange: (v: 'group' | 'individual') => void;
 }) {
   return (
-    <View style={styles.headerTabsWrap}>
-      {(['group', 'individual'] as const).map(v => {
-        const active = value === v;
+    <View style={styles.headerTabsRow}>
+      {(
+        [
+          ['group', '전체 공지'],
+          ['individual', '내 알림'],
+        ] as const
+      ).map(([k, label]) => {
+        const active = value === k;
         return (
           <TouchableOpacity
-            key={v}
-            onPress={() => onChange(v)}
-            style={[styles.tabBtn, active && styles.tabBtnActive]}
+            key={k}
+            onPress={() => onChange(k)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.headerTab}
           >
-            <Text style={[styles.tabText, active && styles.tabTextActive]}>
-              {v === 'group' ? '전체 공지' : '내 알림'}
+            <Text
+              style={[
+                styles.headerTabText,
+                active ? styles.headerTabTextActive : styles.headerTabTextDim,
+              ]}
+            >
+              {label}
             </Text>
+            <View
+              style={[
+                styles.headerUnderline,
+                active
+                  ? styles.headerUnderlineActive
+                  : styles.headerUnderlineInactive,
+              ]}
+            />
           </TouchableOpacity>
         );
       })}
@@ -260,7 +281,7 @@ function HeaderTabs({
 /* --------------------------- Main Screen ------------------------------ */
 export default function NotificationScreen() {
   const navigation = useNavigation<Nav>();
-  const route = useRoute<any>();
+  const route = useRoute<Rt>();
   const insets = useSafeAreaInsets();
 
   // 초기 탭은 route 파라미터 우선
@@ -271,30 +292,35 @@ export default function NotificationScreen() {
   const [personalNotices, setPersonalNotices] = useState<any[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  // 헤더에 탭 UI 배치 + 동기화
+  // 헤더에 탭 UI 배치 + 동기화 (최종 권한 setOptions)
   useLayoutEffect(() => {
     navigation.setOptions({
+      headerShown: true,
+      headerShadowVisible: false,
+      headerStyle: { backgroundColor: '#fff' },
+      headerBackground: () => (
+        <View style={{ flex: 1, backgroundColor: '#fff' }} />
+      ),
       headerTitle: () => (
         <HeaderTabs
           value={tab}
           onChange={v => navigation.setParams({ tab: v })}
         />
       ),
-      headerShadowVisible: false,
-      headerStyle: { backgroundColor: '#fff' },
+      headerRight: () => null,
     });
   }, [navigation, tab]);
 
-  // route.params.tab 변경되면 화면 상태 동기화
+  // route.params.tab 변경되면 상태 동기화
   useEffect(() => {
     if (tab !== routeTab) setTab(routeTab);
   }, [routeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 최초 로딩: 두 리스트 모두 불러옴
+  // 최초 로딩: 두 리스트 모두 가져오기
   useEffect(() => {
     (async () => {
       try {
-        // 1) 전체 공지 (비인증)
+        // 전체 공지
         const g = await fetch(`${BACKEND_URL}/notifications/?type=group`);
         let groupList: any[] = [];
         try {
@@ -305,26 +331,24 @@ export default function NotificationScreen() {
         }
         setGroupNotices(groupList);
 
-        // 2) 내 알림 (인증)
+        // 내 알림
         const n = await authFetch(
           `${BACKEND_URL}/notifications/?type=individual&scope=mine`,
         );
-        let rawList: any[] = [];
+        let raw: any[] = [];
         try {
           const nj = await n.json();
-          rawList = Array.isArray(nj) ? nj : nj?.results ?? [];
+          raw = Array.isArray(nj) ? nj : nj?.results ?? [];
         } catch {
-          rawList = [];
+          raw = [];
         }
 
-        // report_id → 최신 피드백 한 줄
-        const rids = rawList
+        const rids = raw
           .map(x => Number(x.report_id))
           .filter(v => Number.isFinite(v) && v > 0);
         const fbMap = await fetchOneFeedbackByReportIds(rids);
 
-        // 화면용 가공
-        const normalized = rawList.map(it => {
+        const normalized = raw.map(it => {
           const username =
             it?.user_name ||
             it?.user?.first_name ||
@@ -419,29 +443,39 @@ export default function NotificationScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
 
-  headerTabsWrap: {
+  // --- Header tabs (검은 밑줄) ---
+  headerTabsRow: {
     flexDirection: 'row',
-    backgroundColor: '#F1F1F1',
-    padding: 4,
-    borderRadius: 16,
+    alignItems: 'flex-end',
+    gap: 24,
+    paddingBottom: 2,
   },
-  tabBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+  headerTab: {
+    alignItems: 'center',
   },
-  tabBtnActive: {
-    backgroundColor: '#fff',
+  headerTabText: {
+    fontSize: 16,
+    fontWeight: '700',
   },
-  tabText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '600',
-  },
-  tabTextActive: {
+  headerTabTextActive: {
     color: '#000',
   },
+  headerTabTextDim: {
+    color: '#B0B0B0',
+  },
+  headerUnderline: {
+    marginTop: 6,
+    height: 2,
+    alignSelf: 'stretch',
+  },
+  headerUnderlineActive: {
+    backgroundColor: '#000',
+  },
+  headerUnderlineInactive: {
+    backgroundColor: 'transparent',
+  },
 
+  // --- List items ---
   noticeItem: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
   noticeTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 4 },
   noticeContent: { fontSize: 14, color: '#444', marginTop: 6, lineHeight: 20 },

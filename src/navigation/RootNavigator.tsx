@@ -58,6 +58,7 @@ export default function RootNavigator({ initialRouteName = 'Login' }: Props) {
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: '#0E0E0E' },
+        animation: 'none', // ⬅️ 첫 렌더 전환 부드럽게 (필요시 'fade'로 교체)
       }}
     >
       {/* ===== 그룹 1: 커스텀/풀스크린 ===== */}
@@ -151,7 +152,7 @@ export default function RootNavigator({ initialRouteName = 'Login' }: Props) {
               <Text
                 style={{
                   fontSize: 18,
-                  fontWeight: '700',
+                  fontWeight: '500',
                   color: '#000',
                   marginBottom: -8,
                 }}
@@ -180,7 +181,7 @@ export default function RootNavigator({ initialRouteName = 'Login' }: Props) {
               <Text
                 style={{
                   fontSize: 18,
-                  fontWeight: '700',
+                  fontWeight: '500',
                   color: '#000',
                   marginBottom: -8,
                 }}
@@ -209,7 +210,7 @@ export default function RootNavigator({ initialRouteName = 'Login' }: Props) {
               <Text
                 style={{
                   fontSize: 18,
-                  fontWeight: '700',
+                  fontWeight: '500',
                   color: '#000',
                   marginBottom: -8,
                 }}
@@ -238,7 +239,7 @@ export default function RootNavigator({ initialRouteName = 'Login' }: Props) {
               <Text
                 style={{
                   fontSize: 18,
-                  fontWeight: '700',
+                  fontWeight: '500',
                   color: '#000',
                   marginBottom: -8,
                 }}
@@ -267,7 +268,7 @@ export default function RootNavigator({ initialRouteName = 'Login' }: Props) {
               <Text
                 style={{
                   fontSize: 18,
-                  fontWeight: '700',
+                  fontWeight: '500',
                   color: '#000',
                   marginBottom: -8,
                 }}
@@ -296,7 +297,7 @@ export default function RootNavigator({ initialRouteName = 'Login' }: Props) {
               <Text
                 style={{
                   fontSize: 18,
-                  fontWeight: '700',
+                  fontWeight: '500',
                   color: '#000',
                   marginBottom: -8,
                 }}
@@ -343,7 +344,7 @@ export default function RootNavigator({ initialRouteName = 'Login' }: Props) {
               <Text
                 style={{
                   fontSize: 18,
-                  fontWeight: '700',
+                  fontWeight: '500',
                   color: '#000',
                   marginBottom: -6,
                 }}

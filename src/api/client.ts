@@ -1,9 +1,22 @@
 // src/api/client.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { jwtDecode } from 'jwt-decode';
 
+/** ① 서버 주소: 실제 환경에 맞게 하나로 고정하세요.
+ *   - 에뮬레이터(AVD): http://10.0.2.2:8000/api
+ *   - 실기기:        http://<PC_로컬IP>:8000/api  (예: 192.168.x.x)
+ *   - 개발 PC:       http://127.0.0.1:8000/api  (웹/PC에서 직접 호출 시)
+ */
 export const BASE_URL = 'http://127.0.0.1:8000/api';
 
-const DEFAULT_TIMEOUT_MS = 1500;
+const DEFAULT_TIMEOUT_MS = 8000; // 업로드 제외 일반 요청 타임아웃(현실화)
+const REFRESH_PATH = '/token/refresh/';
+
+const AS = {
+  access: 'accessToken',
+  refresh: 'refreshToken',
+  email: 'userEmail',
+} as const;
 
 export class ApiError extends Error {
   status?: number;
@@ -22,19 +35,30 @@ export class ApiError extends Error {
   }
 }
 
+/* ---------------- Token helpers ---------------- */
 async function getAccessToken(): Promise<string | null> {
-  return AsyncStorage.getItem('accessToken');
+  return AsyncStorage.getItem(AS.access);
+}
+async function setAccessToken(t: string) {
+  await AsyncStorage.setItem(AS.access, t);
+}
+async function getRefreshToken(): Promise<string | null> {
+  return AsyncStorage.getItem(AS.refresh);
+}
+async function setRefreshToken(t: string) {
+  await AsyncStorage.setItem(AS.refresh, t);
 }
 async function clearTokens() {
-  await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'userEmail']);
+  await AsyncStorage.multiRemove([AS.access, AS.refresh, AS.email]);
 }
 
+/* ---------------- Timeouts ---------------- */
 type RequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   headers?: Record<string, string>;
   body?: any; // FormData | JSON
   auth?: boolean; // 기본 true
-  timeoutMs?: number;
+  timeoutMs?: number; // 기본 DEFAULT_TIMEOUT_MS
 };
 
 async function fetchWithTimeout(
@@ -60,6 +84,76 @@ async function fetchWithTimeout(
   }
 }
 
+/* ---------------- JWT exp 파싱 & 선제 갱신 ---------------- */
+function parseJwtExp(token: string | null): number | null {
+  if (!token) return null;
+  try {
+    const payload = jwtDecode<{ exp?: number }>(token);
+    return typeof payload.exp === 'number' ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureFreshAccess() {
+  const access = await getAccessToken();
+  const exp = parseJwtExp(access);
+  if (!exp) return;
+  const now = Math.floor(Date.now() / 1000);
+  // 만료 60초 전이면 미리 갱신
+  if (exp - now <= 60) {
+    await refreshOnce(); // 실패 시 throw → 상위에서 처리
+  }
+}
+
+/* ---------------- Refresh 1회 시도 ---------------- */
+async function refreshOnce() {
+  const refresh = await getRefreshToken();
+  if (!refresh) throw new ApiError('no refresh token', 401, { logout: true });
+
+  const url = `${BASE_URL}${REFRESH_PATH}`;
+  const res = await fetchWithTimeout(
+    url,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ refresh }),
+    },
+    DEFAULT_TIMEOUT_MS,
+  );
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    let data: any = null;
+    try {
+      data = txt ? JSON.parse(txt) : null;
+    } catch {}
+    throw new ApiError(`refresh failed (HTTP ${res.status})`, res.status, {
+      raw: data,
+      logout: true,
+    });
+  }
+
+  const data = await res.json();
+  const newAccess: string | undefined = data?.access ?? data?.token;
+  if (!newAccess) {
+    throw new ApiError('no access in refresh response', 401, {
+      logout: true,
+      raw: data,
+    });
+  }
+  await setAccessToken(newAccess);
+  if (data?.refresh) {
+    // ROTATE_REFRESH_TOKENS=True이면 새 refresh도 저장
+    await setRefreshToken(data.refresh);
+  }
+  return newAccess;
+}
+
+/* ---------------- 공통 요청 함수 ---------------- */
 export async function request<T = any>(
   path: string,
   {
@@ -70,8 +164,6 @@ export async function request<T = any>(
     timeoutMs,
   }: RequestOptions = {},
 ): Promise<T> {
-  const token = auth ? await getAccessToken() : null;
-
   const url = path.startsWith('http')
     ? path
     : `${BASE_URL}${path.startsWith('/') ? '' : '/'}${path}`;
@@ -79,15 +171,26 @@ export async function request<T = any>(
   const isFormData =
     typeof FormData !== 'undefined' && body instanceof FormData;
 
-  const res = await fetchWithTimeout(
+  // 1) (인증 요청이면) 만료 임박 시 선제 갱신
+  if (auth) {
+    try {
+      await ensureFreshAccess();
+    } catch (e) {
+      // 선제 갱신이 실패해도, 아래 본요청에서 401 재시도로 한 번 더 시도
+    }
+  }
+
+  const access = auth ? await getAccessToken() : null;
+
+  // 2) 1차 요청
+  let res = await fetchWithTimeout(
     url,
     {
       method,
       headers: {
-        // JSON일 때만 Content-Type 지정, multipart는 RN이 boundary 포함해서 자동 세팅
         ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         Accept: 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(access ? { Authorization: `Bearer ${access}` } : {}),
         ...headers,
       },
       body:
@@ -96,14 +199,48 @@ export async function request<T = any>(
     timeoutMs ?? DEFAULT_TIMEOUT_MS,
   );
 
+  // 3) 401이면 refresh 1회 → 재시도
+  if (auth && res.status === 401) {
+    try {
+      await refreshOnce();
+      const access2 = await getAccessToken();
+      res = await fetchWithTimeout(
+        url,
+        {
+          method,
+          headers: {
+            ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+            Accept: 'application/json',
+            ...(access2 ? { Authorization: `Bearer ${access2}` } : {}),
+            ...headers,
+          },
+          body:
+            body != null
+              ? isFormData
+                ? body
+                : JSON.stringify(body)
+              : undefined,
+        },
+        timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      );
+    } catch (e) {
+      // 갱신 실패 → 토큰 정리 + 로그아웃 플래그
+      await clearTokens();
+      throw new ApiError('세션이 만료되었습니다. 다시 로그인해주세요.', 401, {
+        logout: true,
+        raw: e,
+      });
+    }
+  }
+
+  // 4) 결과 처리
   if (res.ok) {
     if (res.status === 204) return undefined as unknown as T;
     const text = await res.text();
     try {
       return (text ? JSON.parse(text) : null) as T;
     } catch {
-      // 응답이 순수 텍스트일 수도 있음
-      return text as unknown as T;
+      return text as unknown as T; // 응답이 텍스트인 경우
     }
   }
 
@@ -130,7 +267,7 @@ export async function request<T = any>(
   throw new ApiError(serverMsg, res.status, { raw: server });
 }
 
-// ---- JSON/Multipart 헬퍼 ----
+/* ---------------- JSON/Multipart helpers ---------------- */
 export const getJSON = <T = any>(
   path: string,
   opts: Omit<RequestOptions, 'method'> = {},
@@ -141,6 +278,23 @@ export const postJSON = <T = any>(
   body?: any,
   opts: Omit<RequestOptions, 'method' | 'body'> = {},
 ) => request<T>(path, { ...opts, method: 'POST', body });
+
+export const putJSON = <T = any>(
+  path: string,
+  body?: any,
+  opts: Omit<RequestOptions, 'method' | 'body'> = {},
+) => request<T>(path, { ...opts, method: 'PUT', body });
+
+export const patchJSON = <T = any>(
+  path: string,
+  body?: any,
+  opts: Omit<RequestOptions, 'method' | 'body'> = {},
+) => request<T>(path, { ...opts, method: 'PATCH', body });
+
+export const delJSON = <T = any>(
+  path: string,
+  opts: Omit<RequestOptions, 'method'> = {},
+) => request<T>(path, { ...opts, method: 'DELETE' });
 
 export const postMultipart = <T = any>(
   path: string,
