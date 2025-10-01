@@ -85,6 +85,7 @@ ALLOWED_HOSTS=127.0.0.1,localhost
 CORS_ALLOW_ALL_ORIGINS=True
 
 + 프론트엔드(sencity_backend/.env.example)
+  
 API_BASE_URL=http://127.0.0.1:8000/api
 KAKAO_JS_KEY=b546dc26850ac5793ef1561229a7e072
 KAKAO_REST_API_KEY=fc44c60ee56cd12cbe85e1a9d5c337e0
