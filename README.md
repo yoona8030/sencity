@@ -2,7 +2,7 @@
 ### 도심 내 야생동물 출현 신고 알림 및 신고 앱
 
 1. 주제 선정 배경
-: 무분별한 산간 개발 등으로 서식지 파괴, 먹이 부족 현상이 증가함으로 인해 야생동물의 출현 빈도가 증가하고 있지만 이를 신고하거나 주변에 알릴 수 있는 수단이 부족하다고 판단하여, 누구나 쉽고 빠르게 위험 정보를 공유할 수 있는 모바일 플랫폼을 구축하고자 함
+: 무분별한 산간 개발 등으로 서식지 파괴, 먹이 부족 현상이 증가함으로 인해 야생동물의 출현 빈도가 증가하고 있음. 하지만, 이를 신고하거나 주변에 알릴 수 있는 수단이 부족하다고 판단하여, 누구나 쉽고 빠르게 위험 정보를 공유할 수 있는 모바일 플랫폼을 구축하고자 함
 
 2. 과제의 목적
 + 도심 내 야생동물 출현 시 사용자에게 알림 전송하여 통계와 알림을 통해 위험정보를 공유
@@ -116,39 +116,49 @@ KAKAO_REST_API_KEY=fc44c60ee56cd12cbe85e1a9d5c337e0
 Base URL: http://127.0.0.1:8000/api
 Auth: Authorization: Bearer <access_token> (JWT)
 
-+ 요약
-| 메서드  | 경로                 | 설명                      |   인증    |
-| ---- | ---------------------- | --------------------------| ----------|
-| GET  | `/health/`             | 서버 상태 체크             |     -     |
-| POST | `/auth/token/`         | JWT 토큰 발급              |      -    |
-| POST | `/auth/token/refresh/` | JWT 갱신                  |      -    |
-| GET  | `/reports/`            | 신고 목록 조회(필터 지원)   |   Bearer  |
-| POST | `/reports/`            | 신고 생성(사진/위치 업로드) |   Bearer  |
-| GET  | `/stats/summary/`      | 동물/지역 통계 요약         |  Bearer   |
+**Base URL**: `http://127.0.0.1:8000/api`  
+**Auth**: `Authorization: Bearer <access_token>` (JWT)
 
-+ JWT 발급 
+### 요약
 
+| 메서드 | 경로                          | 설명                           | 인증   |
+|-------|-------------------------------|--------------------------------|--------|
+| GET   | `http://127.0.0.1:8000/health/` | 서버 상태 체크 (루트 경로)      | -      |
+| POST  | `/auth/token/`                | JWT 토큰 발급                   | -      |
+| POST  | `/auth/token/refresh/`        | JWT 갱신                        | -      |
+| GET   | `/reports/`                   | 신고 목록 조회(필터 지원)       | Bearer |
+| POST  | `/reports/`                   | 신고 생성(사진/위치 업로드)     | Bearer |
+| GET   | `/stats/summary/`             | 동물/지역 통계 요약             | Bearer |
+
+---
+
+### JWT 발급
+```bash
 curl -X POST http://127.0.0.1:8000/api/auth/token/ \
   -H "Content-Type: application/json" \
   -d '{"email":"test@example.com","password":"pass1234"}'
-  
+```
+
 ++ 성공 예시 : {"access":"<...>","refresh":"<...>"}
 
 + JWT 갱신
-
+```
 curl -X POST http://127.0.0.1:8000/api/auth/token/refresh/ \
   -H "Content-Type: application/json" \
   -d '{"refresh":"<refresh_token_here>"}'
+```
 
 + 신고 목록 조회
-
+```
 curl "http://127.0.0.1:8000/api/reports/?ordering=-created_at&page=1" \
   -H "Authorization: Bearer <access>"
+```
 
 + 통계 요약
-
+```
 curl "http://127.0.0.1:8000/api/stats/summary/?date_after=2025-07-01&date_before=2025-10-01" \
   -H "Authorization: Bearer <access>"
+```
 
 9. 디렉터리 구조
 
