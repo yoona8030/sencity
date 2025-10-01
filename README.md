@@ -38,10 +38,13 @@
 + 백엔드(Django) -- 윈도우 환경
   
 REM 1) 백엔드 폴더로 이동
+
 cd sencity_backend
 
 REM 2) 가상환경 생성/활성화
+
 py -3.11 -m venv venv311
+
 venv311\Scripts\activate
 
 REM 3) 의존성 설치 (clean 파일 사용 권장)
@@ -63,7 +66,7 @@ REM 6) 서버 실행 (외부 접속 허용)
 python manage.py runserver 0.0.0.0:8000
 
 + 프론트엔드(React Native) 실행
-+ 
+
 REM 1) 앱 폴더로 이동
 
 cd ..\sencity
@@ -85,15 +88,21 @@ REM 5) (선택) 캐시 초기화 – 빌드 꼬임 방지
 npx react-native start --reset-cache
 
 REM 6) 실행 (Android)
+
 npm run android
 
 6. 환경변수
 + 백엔드(sencity_backend/.env.example)
+  
 REM 1) 필수
+
 SECRET_KEY=dev-secret-for-judge
+
 REM 2) 선택(기본값 존재)
+
 DEBUG=True
 ALLOWED_HOSTS=127.0.0.1,localhost
+
 CORS_ALLOW_ALL_ORIGINS=True
 
 + 프론트엔드(sencity_backend/.env.example)
@@ -103,6 +112,7 @@ KAKAO_JS_KEY=b546dc26850ac5793ef1561229a7e072
 KAKAO_REST_API_KEY=fc44c60ee56cd12cbe85e1a9d5c337e0
 
 7. API 퀵 레퍼런스
+
 Base URL: http://127.0.0.1:8000/api
 Auth: Authorization: Bearer <access_token> (JWT)
 
@@ -117,25 +127,31 @@ Auth: Authorization: Bearer <access_token> (JWT)
 | GET  | `/stats/summary/`      | 동물/지역 통계 요약         |  Bearer   |
 
 + JWT 발급 
+
 curl -X POST http://127.0.0.1:8000/api/auth/token/ \
   -H "Content-Type: application/json" \
   -d '{"email":"test@example.com","password":"pass1234"}'
+  
 ++ 성공 예시 : {"access":"<...>","refresh":"<...>"}
 
 + JWT 갱신
+
 curl -X POST http://127.0.0.1:8000/api/auth/token/refresh/ \
   -H "Content-Type: application/json" \
   -d '{"refresh":"<refresh_token_here>"}'
 
 + 신고 목록 조회
+
 curl "http://127.0.0.1:8000/api/reports/?ordering=-created_at&page=1" \
   -H "Authorization: Bearer <access>"
 
 + 통계 요약
+
 curl "http://127.0.0.1:8000/api/stats/summary/?date_after=2025-07-01&date_before=2025-10-01" \
   -H "Authorization: Bearer <access>"
 
 9. 디렉터리 구조
+
 sencity_backend/          # Djando 백엔드 
   ├─ api/                 # DRF 앱 (모델/시리얼라이저/뷰)
   ├─ inquiries/           # 문의/게시 공지
