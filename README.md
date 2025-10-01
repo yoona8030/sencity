@@ -162,27 +162,28 @@ curl "http://127.0.0.1:8000/api/stats/summary/?date_after=2025-07-01&date_before
 
 9. 디렉터리 구조
 
-sencity_backend/          # Djando 백엔드 
-  ├─ api/                 # DRF 앱 (모델/시리얼라이저/뷰)
-  ├─ inquiries/           # 문의/게시 공지
-  ├─ dashboard/           # 관리자/통계 대시보드
-  ├─ manage.py
-  ├─ requirements*.txt
-  └─ sencity_backend/
-      ├─ settings.py
-      ├─ urls.py
-      └─ utils/renderers.py
+sencity_backend/ # Django 백엔드
+├─ api/ # DRF 앱 (모델/시리얼라이저/뷰)
+├─ inquiries/ # 문의/게시 공지
+├─ dashboard/ # 관리자/통계 대시보드
+├─ manage.py
+├─ requirements*.txt
+└─ sencity_backend/
+├─ settings.py
+├─ urls.py
+└─ utils/renderers.py
 
-sencity/                  # React Native 프론트
-  ├─ src/
-  │  ├─ api/             # axios 클라이언트
-  │  ├─ components/      # UI 컴포넌트
-  │  ├─ screens/         # 화면들(신고/지도/통계)
-  │  ├─ config.ts        # 환경값 단일 진입점(이 파일 사용)
-  │  └─ types/env.d.ts   # @env 타입 선언
-  ├─ android/ios/
-  ├─ .env.example
-  └─ package.json
+sencity/ # React Native 프론트
+├─ src/
+│ ├─ api/ # axios 클라이언트
+│ ├─ components/ # UI 컴포넌트
+│ ├─ screens/ # 신고/지도/통계 화면
+│ ├─ config.ts # 환경값 단일 진입점
+│ └─ types/env.d.ts # @env 타입 선언
+├─ android/
+├─ ios/
+├─ .env.example
+└─ package.json
 
 9. 트러블 슈팅
 + 지도 안 보임(흰 화면)
