@@ -71,7 +71,7 @@
 
 #### 8. 설치 및 실행 방법
 + 백엔드(Django) -- 윈도우 환경
-  
+```
 REM 1) 백엔드 폴더로 이동
 
 cd sencity_backend
@@ -125,7 +125,7 @@ npx react-native start --reset-cache
 REM 6) 실행 (Android)
 
 npm run android
-
+```
 #### 9. 환경변수
 + 백엔드(sencity_backend/.env.example)
   
