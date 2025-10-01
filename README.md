@@ -1,97 +1,170 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+## SENCITY
+### 도심 내 야생동물 출현 신고 알림 및 신고 앱
 
-# Getting Started
+1. 주제 선정 배경
+: 무분별한 산간 개발 등으로 서식지 파괴, 먹이 부족 현상이 증가함으로 인해 야생동물의 출현 빈도가 증가하고 있지만 이를 신고하거나 주변에 알릴 수 있는 수단이 부족하다고 판단하여, 누구나 쉽고 빠르게 위험 정보를 공유할 수 있는 모바일 플랫폼을 구축하고자 함
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+2. 과제의 목적
++ 도심 내 야생동물 출현 시 사용자에게 알림 전송하여 통계와 알림을 통해 위험정보를 공유
++ 전염병 감염이 있는 야생동물에 대한 정보 제공
++ 상황별 대처 요령을 제공하여 2차 피해 예방
++ 사용자의 신고와 IoT 센서를 통해 데이터를 수집하고, AI 모델로 분석하여 지역별 위험도 시각화
 
-## Step 1: Start Metro
+3. 핵심 기능
++ 신고하기: 사진/위치 기반 신고 등록
++ 통계/지도 시각화: 동물별, 지역별 통계 차트 제공
++ 알림/공지 전갈: 위험 지역 사용자에게 FCM 푸시 알림 제공
++ AI 인식: 카메라 활영 이미지에서 동물 종 분류
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+4. 기술 스택
++ 프론트엔드: React Native, TypeScript 기반 모바일 앱
+  + 카메라 액세스, 위치 수집, 푸시 알림 기능
++ 백엔드: Django, Django REST Framework
+  + REST API 제공, 사용자 인증(JWT), 비즈니스 로직 처리
++ 데이터베이스: SQLite
+  + 사용자/신고/위치 데이터 저장, Django ORM 기반
++ AI 분석: TensorFlow(Keras EfficientNet-B0), OpenCV, Pillow
+  + 동물 이미지 분류, CCTV 연동
+  + 정확도, 속도, 모델 크기 사이 최적의 균형 찾도록 설계 -> 적은 파라미터로 높은 성능 달성 가능 
++ IoT 장치
+  + CCTV -> 영상 촬영 및 서버 전송
+  + Arduino -> 센서, 카메라 제어
++ 외부 서비스
+  + Firebase Cloud Messaging (FCM): 지역 사용자 대상 실시간 푸시 알림
+  + Kakao Map API: 위치 검색 및 지도 시각화 (WebView 기반 연동)
++ 개발/배포 도구: GitHub
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+5. 설치 및 실행 방법
++ 백엔드(Django) -- 윈도우 환경 
+REM 1) 백엔드 폴더로 이동
+cd sencity_backend
 
-```sh
-# Using npm
-npm start
+REM 2) 가상환경 생성/활성화
+py -3.11 -m venv venv311
+venv311\Scripts\activate
 
-# OR using Yarn
-yarn start
-```
+REM 3) 의존성 설치 (clean 파일 사용 권장)
+python -m pip install -r requirements.clean.txt
+REM clean 파일이 없다면: python -m pip install -r requirements.txt
 
-## Step 2: Build and run your app
+REM 4) 환경파일 예시 복사(없으면 건너뛰기)
+if not exist .env copy .env.example .env
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+REM 5) 마이그레이션
+python manage.py migrate
 
-### Android
+REM 6) 서버 실행 (외부 접속 허용)
+python manage.py runserver 0.0.0.0:8000
 
-```sh
-# Using npm
++ 프론트엔드(React Native) 실행
+REM 1) 앱 폴더로 이동
+cd ..\sencity
+
+REM 2) 의존성 설치
+npm i
+
+REM 3) 환경파일 준비
+copy .env.example .env
+
+REM 4) (실기기/USB 연결 또는 에뮬레이터) 백엔드 포워딩
+adb reverse tcp:8000 tcp:8000
+
+REM 5) (선택) 캐시 초기화 – 빌드 꼬임 방지
+npx react-native start --reset-cache
+
+REM 6) 실행 (Android)
 npm run android
 
-# OR using Yarn
-yarn android
-```
+6. 환경변수
++ 백엔드(sencity_backend/.env.example)
+REM 1) 필수
+SECRET_KEY=dev-secret-for-judge
+REM 2) 선택(기본값 존재)
+DEBUG=True
+ALLOWED_HOSTS=127.0.0.1,localhost
+CORS_ALLOW_ALL_ORIGINS=True
 
-### iOS
++ 프론트엔드(sencity_backend/.env.example)
+API_BASE_URL=http://127.0.0.1:8000/api
+KAKAO_JS_KEY=b546dc26850ac5793ef1561229a7e072
+KAKAO_REST_API_KEY=fc44c60ee56cd12cbe85e1a9d5c337e0
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+7. API 퀵 레퍼런스
+Base URL: http://127.0.0.1:8000/api
+Auth: Authorization: Bearer <access_token> (JWT)
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
++ 요약
+| 메서드  | 경로                 | 설명                      |   인증    |
+| ---- | ---------------------- | --------------------------| ----------|
+| GET  | `/health/`             | 서버 상태 체크             |     -     |
+| POST | `/auth/token/`         | JWT 토큰 발급              |      -    |
+| POST | `/auth/token/refresh/` | JWT 갱신                  |      -    |
+| GET  | `/reports/`            | 신고 목록 조회(필터 지원)   |   Bearer  |
+| POST | `/reports/`            | 신고 생성(사진/위치 업로드) |   Bearer  |
+| GET  | `/stats/summary/`      | 동물/지역 통계 요약         |  Bearer   |
 
-```sh
-bundle install
-```
++ JWT 발급 
+curl -X POST http://127.0.0.1:8000/api/auth/token/ \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"pass1234"}'
+++ 성공 예시 : {"access":"<...>","refresh":"<...>"}
 
-Then, and every time you update your native dependencies, run:
++ JWT 갱신
+curl -X POST http://127.0.0.1:8000/api/auth/token/refresh/ \
+  -H "Content-Type: application/json" \
+  -d '{"refresh":"<refresh_token_here>"}'
 
-```sh
-bundle exec pod install
-```
++ 신고 목록 조회
+curl "http://127.0.0.1:8000/api/reports/?ordering=-created_at&page=1" \
+  -H "Authorization: Bearer <access>"
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
++ 통계 요약
+curl "http://127.0.0.1:8000/api/stats/summary/?date_after=2025-07-01&date_before=2025-10-01" \
+  -H "Authorization: Bearer <access>"
 
-```sh
-# Using npm
-npm run ios
+9. 디렉터리 구조
+sencity_backend/          # Djando 백엔드 
+  ├─ api/                 # DRF 앱 (모델/시리얼라이저/뷰)
+  ├─ inquiries/           # 문의/게시 공지
+  ├─ dashboard/           # 관리자/통계 대시보드
+  ├─ manage.py
+  ├─ requirements*.txt
+  └─ sencity_backend/
+      ├─ settings.py
+      ├─ urls.py
+      └─ utils/renderers.py
 
-# OR using Yarn
-yarn ios
-```
+sencity/                  # React Native 프론트
+  ├─ src/
+  │  ├─ api/             # axios 클라이언트
+  │  ├─ components/      # UI 컴포넌트
+  │  ├─ screens/         # 화면들(신고/지도/통계)
+  │  ├─ config.ts        # 환경값 단일 진입점(이 파일 사용)
+  │  └─ types/env.d.ts   # @env 타입 선언
+  ├─ android/ios/
+  ├─ .env.example
+  └─ package.json
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+9. 트러블 슈팅
++ 지도 안 보임(흰 화면)
+  + 카카오 JS SDK는 허용 도메인에 현재 접속 URL이 등록되어 있어야 로드
+  + .env의 KAKAO_JS_KEY가 비어있으면 SDK 초기화에 실패 → 키 추가 후 재빌드 필요(환경 변수는 빌드 타임 주입)
++ 프론트가 API에 못 붙음
+  + 실기기/에뮬레이터에서 127.0.0.1:8000을 치면 기기 자신을 보게 됨
+  + adb reverse tcp:8000 tcp:8000으로 기기의 8000 -> PC의 8000을 터널링
+  + 추가 점검: 백엔드가 실제 켜져 있는지 http://127.0.0.1:8000/health/  200 응답 확인
++ JWT 인증 오류
+  + Access 토큰 만료/형식 오류/헤더 누락
+  + 만료면 POST /auth/token/refresh/로 새 Access 토큰 발급 후 Authorization: Bearer <access>로 재시도
+  + 요청 헤더에 Bearer가 맞는지 재확인
+  
+11. 보안/제출 가이드
++ 키: .env.example만 포함
++ kakao 키: 테스트 앱(심사용) 키 사용 -> 제출 후 키 회전/삭제
++ 라이선스: requirements.txt/package.json 참고
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+11. 연락/문의
++ 팀명: F4
++ 신지윤(summerand000@gmail.com): 프로젝트 설계, 분류모델 구현 및 학습, IP 카메라 연동
++ 박윤아(ya8030@naver.com): DB 구현, 백엔드 서버 구현, 프론트엔드 코딩 
 
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
