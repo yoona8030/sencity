@@ -35,7 +35,8 @@
 + 개발/배포 도구: GitHub
 
 5. 설치 및 실행 방법
-+ 백엔드(Django) -- 윈도우 환경 
++ 백엔드(Django) -- 윈도우 환경
+  
 REM 1) 백엔드 폴더로 이동
 cd sencity_backend
 
@@ -44,32 +45,43 @@ py -3.11 -m venv venv311
 venv311\Scripts\activate
 
 REM 3) 의존성 설치 (clean 파일 사용 권장)
+
 python -m pip install -r requirements.clean.txt
+
 REM clean 파일이 없다면: python -m pip install -r requirements.txt
 
 REM 4) 환경파일 예시 복사(없으면 건너뛰기)
+
 if not exist .env copy .env.example .env
 
 REM 5) 마이그레이션
+
 python manage.py migrate
 
 REM 6) 서버 실행 (외부 접속 허용)
+
 python manage.py runserver 0.0.0.0:8000
 
 + 프론트엔드(React Native) 실행
++ 
 REM 1) 앱 폴더로 이동
+
 cd ..\sencity
 
 REM 2) 의존성 설치
+
 npm i
 
 REM 3) 환경파일 준비
+
 copy .env.example .env
 
 REM 4) (실기기/USB 연결 또는 에뮬레이터) 백엔드 포워딩
+
 adb reverse tcp:8000 tcp:8000
 
 REM 5) (선택) 캐시 초기화 – 빌드 꼬임 방지
+
 npx react-native start --reset-cache
 
 REM 6) 실행 (Android)
