@@ -36,15 +36,15 @@
 
 #### 5. 데이터베이스
   + ORM 모델 - 주요 테이블
-  1. users_user: 사용자
-  2. api_report: 신고(사진/좌표/시간/분류결과)
-  3. api_location: 행정구역
-  4. api_animal: 동물(이름/사진/특징/주의/대처방법)
-  5. api_notification: 공지/알림 피드
-  6. api_devicetoken: 디바이스 FCM 토큰(유저별 다중)
-  7. api_saveplace: 사용자가 저장한 장소(앱 -> 서버 동기화)
-  8. api_searchhistory: 검색 기록(유저별 고유 키워드)
-  9. api_appbanner: 지도 화면 배너(기간, 우선순위)
+    + users_user: 사용자
+    + api_report: 신고(사진/좌표/시간/분류결과)
+    + api_location: 행정구역
+    + api_animal: 동물(이름/사진/특징/주의/대처방법)
+    + api_notification: 공지/알림 피드
+    + api_devicetoken: 디바이스 FCM 토큰(유저별 다중)
+    + api_saveplace: 사용자가 저장한 장소(앱 -> 서버 동기화)
+    + api_searchhistory: 검색 기록(유저별 고유 키워드)
+    + api_appbanner: 지도 화면 배너(기간, 우선순위)
 
   + 마이그레이션/슈퍼유저
   ```
@@ -52,7 +52,7 @@
   python manage.py migrate
   python manage.py createsuperuser
   ```  
-####6. IoT/Arduino & CCTV 파이프라인
+#### 6. IoT/Arduino & CCTV 파이프라인
 + 아키텍처 개요:
 ```
 [Arduino 카메라] --(이미지/센서데이터 업로드)--> [Django API]
