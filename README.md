@@ -161,7 +161,7 @@ curl "http://127.0.0.1:8000/api/stats/summary/?date_after=2025-07-01&date_before
 ```
 
 9. 디렉터리 구조
-
+```bash
 sencity_backend/ # Django 백엔드
 ├─ api/ # DRF 앱 (모델/시리얼라이저/뷰)
 ├─ inquiries/ # 문의/게시 공지
@@ -184,6 +184,7 @@ sencity/ # React Native 프론트
 ├─ ios/
 ├─ .env.example
 └─ package.json
+```
 
 9. 트러블 슈팅
 + 지도 안 보임(흰 화면)
