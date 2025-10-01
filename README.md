@@ -169,13 +169,14 @@ Auth: Authorization: Bearer <access_token> (JWT)
 
 ---
 
-### JWT 발급
-```bash
+### JWT 발급 & 갱신
++ JWT 발급
+```
 curl -X POST http://127.0.0.1:8000/api/auth/token/ \
   -H "Content-Type: application/json" \
   -d '{"email":"test@example.com","password":"pass1234"}'
 ```
-+ 성공 예시 : {"access":"<...>","refresh":"<...>"}
+  + 성공 예시 : {"access":"<...>","refresh":"<...>"}
 
 + JWT 갱신
 ```
