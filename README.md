@@ -34,7 +34,44 @@
   + Kakao Map API: 위치 검색 및 지도 시각화 (WebView 기반 연동)
 + 개발/배포 도구: GitHub
 
-5. 설치 및 실행 방법
+5. 데이터베이스
+  + ORM 모델 - 주요 테이블
+  1. users_user: 사용자
+  2. api_report: 신고(사진/좌표/시간/분류결과)
+  3. api_location: 행정구역
+  4. api_animal: 동물(이름/사진/특징/주의/대처방법)
+  5. api_notification: 공지/알림 피드
+  6. api_devicetoken: 디바이스 FCM 토큰(유저별 다중)
+  7. api_saveplace: 사용자가 저장한 장소(앱 -> 서버 동기화)
+  8. api_searchhistory: 검색 기록(유저별 고유 키워드)
+  9. api_appbanner: 지도 화면 배너(기간, 우선순위)
+
+  + 마이그레이션/슈퍼유저
+  ```
+  python manage.py makemigrations
+  python manage.py migrate
+  python manage.py createsuperuser
+
+  ```  
+6. IoT/Arduino & CCTV 파이프라인
++ 아키텍처 개요:
+```
+[Arduino 카메라] --(이미지/센서데이터 업로드)--> [Django API]
+   └ 센서 이벤트 시 캡처 → POST /api/reports/no-auth (또는 별도 ingest 엔드포인트)
+[백엔드] --(TensorFlow 모델 inference)--> 종 분류 → Report 저장
+[FCM] 위험도/구역 매칭 시 대상 유저에 푸시
+[앱] 지도/배너/공지 피드에 반영
+
+```
+
+7. AI 모델/성능 메모
++ 모델: EfficientNet-B0 (Keras/TensorFlow SavedModel)
++ 클래스 10(고라니/멧돼지/청설모/...)
++ 추론 파이프라인: Pillow/OpenCV -> resize/normalize -> SaveModel 호출
++ 이유: 파라미터 수 대비 정확도 우수 + 모바일/서버 유지 쉬움
++ 배포: sencity_classification_model/models/animal_classifier_savedmodel에서 로드
+
+8. 설치 및 실행 방법
 + 백엔드(Django) -- 윈도우 환경
   
 REM 1) 백엔드 폴더로 이동
@@ -91,7 +128,7 @@ REM 6) 실행 (Android)
 
 npm run android
 
-6. 환경변수
+9. 환경변수
 + 백엔드(sencity_backend/.env.example)
   
 REM 1) 필수
@@ -111,7 +148,7 @@ API_BASE_URL=http://127.0.0.1:8000/api
 KAKAO_JS_KEY=b546dc26850ac5793ef1561229a7e072
 KAKAO_REST_API_KEY=fc44c60ee56cd12cbe85e1a9d5c337e0
 
-7. API 퀵 레퍼런스
+10. API 퀵 레퍼런스
 
 Base URL: http://127.0.0.1:8000/api
 Auth: Authorization: Bearer <access_token> (JWT)
@@ -160,7 +197,7 @@ curl "http://127.0.0.1:8000/api/stats/summary/?date_after=2025-07-01&date_before
   -H "Authorization: Bearer <access>"
 ```
 
-9. 디렉터리 구조
+11. 디렉터리 구조
 ```bash
 sencity_backend/ # Django 백엔드
 ├─ api/ # DRF 앱 (모델/시리얼라이저/뷰)
@@ -186,7 +223,32 @@ sencity/ # React Native 프론트
 └─ package.json
 ```
 
-9. 트러블 슈팅
+12. 관리자 대시보드(HTML/CSS 기반)
++ 개요
+운영자가 신고 접수/처리, 사용자/디바이스 관리, 공지/푸시 발송, 콘텐츠 템플릿 발행, 통계/지도 시각화를 한 곳애서 수행하는 웹 UI
+
+Django 템플릿 기반의 dashboard 앱과 DRF API(api 앱)가 함께 동작
+  + 인증/권한: Django 세션 로그인 + IsAdminUser 또는 Staff 권한
+
++ 주요 화면 & 기능
+  1. 대시보드 홈
+  + 신고 현황, 실시간 CCTV 등 요약
+  2. CCTV 관리
+  + CCTV 스트림 연결(테스트/데모)
+  3. 신고 처리 및 관리
+  + 최근 신고 현황
+  4. 통계/분석
+  + 신고 현황
+  + 동물 통계, 지역 X 동물 교차표, 월별 신고
+  5. 공지/푸시
+  + 전체 공지: Notification 작성 -> FCM 푸시 옵션 선택 가능
+    + 앱 "공지 화면"에 노출 + 푸시
+  + 화면 상단 노출 -> 앱 외부에서도 확인 가능
+  6. 콘텐츠 템플릿
+  + 추천 템플릿(공지/안전 수칙/..) -> 미리보기 -> 템플릿으로 작성
+  + 생성한 공지 템플릿은 지도 화면 내 배너로 사용 가능
+    
+13. 트러블 슈팅
 + 지도 안 보임(흰 화면)
   + 카카오 JS SDK는 허용 도메인에 현재 접속 URL이 등록되어 있어야 로드
   + .env의 KAKAO_JS_KEY가 비어있으면 SDK 초기화에 실패 → 키 추가 후 재빌드 필요(환경 변수는 빌드 타임 주입)
@@ -199,13 +261,14 @@ sencity/ # React Native 프론트
   + 만료면 POST /auth/token/refresh/로 새 Access 토큰 발급 후 Authorization: Bearer <access>로 재시도
   + 요청 헤더에 Bearer가 맞는지 재확인
   
-11. 보안/제출 가이드
+14. 보안/제출 가이드
 + 키: .env.example만 포함
 + kakao 키: 테스트 앱(심사용) 키 사용 -> 제출 후 키 회전/삭제
 + 라이선스: requirements.txt/package.json 참고
 
-11. 연락/문의
+15. 연락/문의
 + 팀명: F4
 + 신지윤(summerand000@gmail.com): 프로젝트 설계, 분류모델 구현 및 학습, IP 카메라 연동
-+ 박윤아(ya8030@naver.com): DB 구현, 백엔드 서버 구현, 프론트엔드 코딩 
++ 박윤아(ya8030@naver.com): DB 구현, 백엔드 서버 구현, 프론트엔드 코딩
++ 윤누리: 프론트엔드, DB
 
