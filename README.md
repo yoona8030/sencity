@@ -69,7 +69,34 @@
 + 이유: 파라미터 수 대비 정확도 우수 + 모바일/서버 유지 쉬움
 + 배포: sencity_classification_model/models/animal_classifier_savedmodel에서 로드
 
-#### 8. 설치 및 실행 방법
+## Prerequisites
+- Node 18 LTS, npm 10+
+- Java 17, Android Studio (SDK 35), ADB
+- Windows 환경에서는 `gradlew.bat` 사용
+
+#### 8. 환경변수
++ 백엔드(sencity_backend/.env.example)
+```
+REM 1) 필수
+
+SECRET_KEY=dev-secret-for-judge
+
+REM 2) 선택(기본값 존재)
+
+DEBUG=True
+ALLOWED_HOSTS=127.0.0.1,localhost
+
+CORS_ALLOW_ALL_ORIGINS=True
+```
+
++ 프론트엔드(sencity_backend/.env.example)
+```  
+API_BASE_URL=http://127.0.0.1:8000/api
+KAKAO_JS_KEY=b546dc26850ac5793ef1561229a7e072
+KAKAO_REST_API_KEY=fc44c60ee56cd12cbe85e1a9d5c337e0
+```
+
+#### 9. 설치 및 실행 방법
 + 백엔드(Django) -- 윈도우 환경
 ```
 REM 1) 백엔드 폴더로 이동
@@ -96,7 +123,11 @@ REM 5) 마이그레이션
 
 python manage.py migrate
 
-REM 6) 서버 실행 (외부 접속 허용)
+REM 6) 시드 데이터 로드
+
+python manage.py loaddata fixtures/sencity_seed.json
+
+REM 7) 서버 실행 (외부 접속 허용)
 
 python manage.py runserver 0.0.0.0:8000
 ```
@@ -127,27 +158,7 @@ REM 6) 실행 (Android)
 
 npm run android
 ```
-#### 9. 환경변수
-+ 백엔드(sencity_backend/.env.example)
-```
-REM 1) 필수
 
-SECRET_KEY=dev-secret-for-judge
-
-REM 2) 선택(기본값 존재)
-
-DEBUG=True
-ALLOWED_HOSTS=127.0.0.1,localhost
-
-CORS_ALLOW_ALL_ORIGINS=True
-```
-
-+ 프론트엔드(sencity_backend/.env.example)
-```  
-API_BASE_URL=http://127.0.0.1:8000/api
-KAKAO_JS_KEY=b546dc26850ac5793ef1561229a7e072
-KAKAO_REST_API_KEY=fc44c60ee56cd12cbe85e1a9d5c337e0
-```
 #### 10. API 퀵 레퍼런스
 
 Base URL: http://127.0.0.1:8000/api
@@ -161,11 +172,11 @@ Auth: Authorization: Bearer <access_token> (JWT)
 | 메서드 | 경로                          | 설명                           | 인증   |
 |-------|-------------------------------|--------------------------------|--------|
 | GET   | `http://127.0.0.1:8000/health/` | 서버 상태 체크 (루트 경로)      | -      |
-| POST  | `/auth/token/`                | JWT 토큰 발급                   | -      |
-| POST  | `/auth/token/refresh/`        | JWT 갱신                        | -      |
-| GET   | `/reports/`                   | 신고 목록 조회(필터 지원)       | Bearer |
-| POST  | `/reports/`                   | 신고 생성(사진/위치 업로드)     | Bearer |
-| GET   | `/stats/summary/`             | 동물/지역 통계 요약             | Bearer |
+| POST  | `/api/auth/token/`                | JWT 토큰 발급               | -      |
+| POST  | `/api/auth/token/refresh/`        | JWT 갱신                    | -      |
+| GET   | `/api/reports/`                   | 신고 목록 조회(필터 지원)      | Bearer |
+| POST  | `/api/reports/`                   | 신고 생성(사진/위치 업로드)    | Bearer |
+| GET   | `/api/stats/summary/`             | 동물/지역 통계 요약           | Bearer |
 
 ---
 
