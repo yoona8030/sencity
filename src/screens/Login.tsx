@@ -23,6 +23,9 @@ import { useAppAlert } from '../components/AppAlertProvider';
 import Checkbox from '../components/Checkbox';
 import { useAuth } from '../context/AuthContext';
 
+// ⬇️ 추가: 서버 로그인 + 토큰 저장
+import { login, handleLoginSuccess } from '../api/auth';
+
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 export default function Login({ navigation }: Props) {
@@ -35,7 +38,7 @@ export default function Login({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
 
   const { notify, confirm } = useAppAlert();
-  const { signIn } = useAuth();
+  const { signIn } = useAuth(); // (email, password) 시그니처
 
   useEffect(() => {
     (async () => {
@@ -48,34 +51,43 @@ export default function Login({ navigation }: Props) {
   }, []);
 
   const handleLogin = async () => {
+    if (loading) return; // 더블탭 방지
     if (!email || !password) {
-      await notify({
-        title: '알림',
-        message: '이메일과 비밀번호를 모두 입력해주세요.',
-      });
+      await notify({ title: '알림', message: '이메일과 비밀번호를 모두 입력해주세요.' });
       return;
     }
+
     try {
       setLoading(true);
+
       const cleanedEmail = email.trim().toLowerCase();
       const cleanedPassword = password.trim();
 
-      await signIn(cleanedEmail, cleanedPassword);
+      // 1) 서버 로그인 (한 번만)
+      const data = await login(cleanedEmail, cleanedPassword);
 
+      // 2) 토큰 저장 (반드시 await, 한 번만)
+      await handleLoginSuccess(data); // 내부에서 access/refresh AsyncStorage 저장
+
+      // 3) 이메일 저장 옵션
       if (remember) await AsyncStorage.setItem('savedEmail', cleanedEmail);
       else await AsyncStorage.removeItem('savedEmail');
 
+      // 4) (선택) 전역 컨텍스트에 "로그인됨" 표시만 하고 끝내세요.
+      //    signIn(email, password)처럼 서버 재호출하는 함수는 사용하지 않는 게 안전합니다.
+      //    만약 반드시 컨텍스트를 갱신해야 한다면, signIn 대신 setAuthenticated(true) 같은 토큰기반 API를 쓰세요.
+      // await setAuthenticated(true); // 예시(컨텍스트 구현에 따라)
+
+      // 5) 메인으로 이동 (토큰 저장 완료 후)
       navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+
     } catch (e: any) {
-      await notify({
-        title: '로그인 실패',
-        message: e?.message ?? '다시 시도해주세요.',
-      });
+      await notify({ title: '로그인 실패', message: e?.message ?? '다시 시도해주세요.' });
     } finally {
       setLoading(false);
     }
   };
-
+  
   type LoginButtonProps = {
     iconName?: string;
     iconSource?: any;
@@ -311,12 +323,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   snsIcon: { marginRight: 10 },
-  snsIconImage: {
-    width: 24,
-    height: 24,
-    marginRight: 10,
-    resizeMode: 'contain',
-  },
+  snsIconImage: { width: 24, height: 24, marginRight: 10, resizeMode: 'contain' },
   naverIcon: { transform: [{ scale: 1.2 }] },
   snsButtonText: { fontSize: 16, color: '#000', fontWeight: '600' },
 

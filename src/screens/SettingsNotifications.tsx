@@ -22,6 +22,8 @@ import {
   PERMISSIONS,
   Permission,
 } from 'react-native-permissions';
+// ✅ 푸시 토큰 강제 재발급/재등록 유틸 추가
+import { forceRefreshFcmTokenAndRegister } from '../utils/fcm';
 
 const AS = {
   enabled: 'notif_enabled',
@@ -29,13 +31,17 @@ const AS = {
   marketing: 'notif_marketing',
 } as const;
 
-// ✅ Android 13+에서만 POST_NOTIFICATIONS를 요청
+/**
+ * Android 13(API 33)+ 에서만 POST_NOTIFICATIONS 권한을 요청.
+ * - 타입 정의가 구버전일 수 있으므로 any 캐스팅으로 안전 접근
+ * - 상수가 없으면 null 반환 → 권한 요청 스킵
+ */
 const getAndroidPostNotif = (): Permission | null => {
   if (Platform.OS !== 'android') return null;
-  // Platform.Version은 안드로이드 API 레벨 숫자입니다.
-  if (Platform.Version < 33) return null;
-  // 타입 캐스팅 없이 바로 사용 가능합니다(최신 타입 기준).
-  return PERMISSIONS.ANDROID.POST_NOTIFICATIONS as Permission;
+  if (typeof Platform.Version === 'number' && Platform.Version < 33) return null;
+
+  const maybe = (PERMISSIONS.ANDROID as any)?.POST_NOTIFICATIONS;
+  return maybe ? (maybe as Permission) : null;
 };
 
 export default function SettingsNotifications() {
@@ -43,6 +49,7 @@ export default function SettingsNotifications() {
   const [report, setReport] = useState(true);
   const [marketing, setMarketing] = useState(false);
   const [osGranted, setOsGranted] = useState<boolean>(false);
+  const [fixing, setFixing] = useState(false); // ✅ 재설정 로딩 상태
 
   useEffect(() => {
     (async () => {
@@ -59,50 +66,53 @@ export default function SettingsNotifications() {
   }, []);
 
   const refreshPermission = useCallback(async () => {
-    if (Platform.OS === 'ios') {
-      const { status } = await checkNotifications();
-      setOsGranted(status === 'granted');
-      return;
+    try {
+      if (Platform.OS === 'ios') {
+        const { status } = await checkNotifications();
+        setOsGranted(status === 'granted');
+        return;
+      }
+      // ANDROID
+      const perm = getAndroidPostNotif();
+      if (!perm) {
+        // Android 12 이하 또는 상수 미지원 → 런타임 권한 없음
+        setOsGranted(true);
+        return;
+      }
+      const r = await check(perm);
+      setOsGranted(r === RESULTS.GRANTED || r === RESULTS.LIMITED);
+    } catch {
+      // 체크 실패 시 보수적으로 미허용 표시
+      setOsGranted(false);
     }
-
-    // ANDROID
-    const perm = getAndroidPostNotif();
-    if (!perm) {
-      // 🔸 Android 12 이하: 런타임 권한 없음 → 사실상 "허용됨"으로 간주
-      setOsGranted(true);
-      return;
-    }
-
-    const r = await check(perm);
-    setOsGranted(r === RESULTS.GRANTED || r === RESULTS.LIMITED);
   }, []);
 
   const reqPermission = useCallback(async () => {
-    if (Platform.OS === 'ios') {
-      const { status } = await requestNotifications([
-        'alert',
-        'badge',
-        'sound',
-      ]);
-      setOsGranted(status === 'granted');
-      if (status === 'blocked') {
-        Alert.alert('안내', '설정에서 알림을 허용해 주세요.');
+    try {
+      if (Platform.OS === 'ios') {
+        const { status } = await requestNotifications(['alert', 'badge', 'sound']);
+        setOsGranted(status === 'granted');
+        if (status === 'blocked') {
+          Alert.alert('안내', '설정에서 알림을 허용해 주세요.');
+        }
+        return;
       }
-      return;
-    }
 
-    // ANDROID
-    const perm = getAndroidPostNotif();
-    if (!perm) {
-      // 🔸 Android 12 이하: 요청 다이얼로그 없음 → 바로 허용 상태로 처리
-      setOsGranted(true);
-      return;
+      // ANDROID
+      const perm = getAndroidPostNotif();
+      if (!perm) {
+        // Android 12 이하: 요청 다이얼로그 없음 → 허용으로 처리
+        setOsGranted(true);
+        return;
+      }
+      const r = await request(perm);
+      const ok = r === RESULTS.GRANTED || r === RESULTS.LIMITED;
+      setOsGranted(ok);
+      if (!ok) Alert.alert('안내', '설정에서 알림을 허용해 주세요.');
+    } catch {
+      setOsGranted(false);
+      Alert.alert('오류', '알림 권한 요청 중 문제가 발생했습니다.');
     }
-
-    const r = await request(perm);
-    const ok = r === RESULTS.GRANTED || r === RESULTS.LIMITED;
-    setOsGranted(ok);
-    if (!ok) Alert.alert('안내', '설정에서 알림을 허용해 주세요.');
   }, []);
 
   const saveEnabled = async (v: boolean) => {
@@ -120,16 +130,28 @@ export default function SettingsNotifications() {
   };
 
   const gotoOsSettings = async () => {
-    // 일부 단말에서 'app-settings:' 스킴 지원이 들쭉날쭉 → openSettings()가 안전합니다.
     try {
       await openSettings();
     } catch {
       const supported = await Linking.canOpenURL('app-settings:');
       if (supported) Linking.openURL('app-settings:');
-      else
-        Alert.alert('안내', '설정 화면을 열 수 없습니다. 수동으로 열어주세요.');
+      else Alert.alert('안내', '설정 화면을 열 수 없습니다. 수동으로 열어주세요.');
     }
   };
+
+  // ✅ 푸시 연결 재설정: 토큰 삭제 → 재발급 → 서버 재등록
+  const onFixPush = useCallback(async () => {
+    if (fixing) return;
+    setFixing(true);
+    try {
+      await forceRefreshFcmTokenAndRegister();
+      Alert.alert('완료', '푸시 연결을 재설정했어요.');
+    } catch {
+      Alert.alert('오류', '재설정 중 문제가 발생했습니다.');
+    } finally {
+      setFixing(false);
+    }
+  }, [fixing]);
 
   return (
     <SafeAreaView style={s.container} edges={['left', 'right']}>
@@ -208,6 +230,17 @@ export default function SettingsNotifications() {
             ios_backgroundColor="#ccc"
           />
         </View>
+      </View>
+
+      {/* ✅ 문제시 즉시 복구: 푸시 연결 재설정 */}
+      <View style={s.section}>
+        <Text style={s.sectionLabel}>문제 해결</Text>
+        <Pressable onPress={onFixPush} style={s.row} disabled={fixing}>
+          <Text style={s.rowText}>
+            {fixing ? '재설정 중…' : '푸시 연결 재설정'}
+          </Text>
+          <Ionicons name={fixing ? 'time' : 'refresh'} size={20} color="#999" />
+        </Pressable>
       </View>
     </SafeAreaView>
   );

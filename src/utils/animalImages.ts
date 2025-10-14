@@ -3,8 +3,8 @@ export const animalImages: Record<string, any> = {
   너구리: require('../../assets/images/Raccoon.png'),
   Wild_boar: require('../../assets/images/Wild_boar.png'),
   멧돼지: require('../../assets/images/Wild_boar.png'),
-  Squirrel: require('../../assets/images/Squirrel.png'),
-  다람쥐: require('../../assets/images/Squirrel.png'),
+  Chipmunk: require('../../assets/images/Chipmunk.png'),
+  다람쥐: require('../../assets/images/Chipmunk.png'),
   Great_egret: require('../../assets/images/Great_egret.png'),
   중대백로: require('../../assets/images/Great_egret.png'),
   Hare: require('../../assets/images/Hare.png'),
@@ -19,4 +19,6 @@ export const animalImages: Record<string, any> = {
   반달가슴곰: require('../../assets/images/Asiatic_black_bear.png'),
   Goat: require('../../assets/images/Goat.png'),
   고라니: require('../../assets/images/Goat.png'),
+  Squirrel: require('../../assets/images/Squirrel.png'),
+  청설모: require('../../assets/images/Squirrel.png'),
 };

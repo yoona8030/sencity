@@ -1,10 +1,11 @@
 // src/screens/SettingsHome.tsx
 import React from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
+import { View, Text, FlatList, Pressable, Button, StyleSheet } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
+// import { showLocalNotification } from '../utils/notifications'; // 알림 확인
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -42,6 +43,10 @@ export default function SettingsHome() {
     else navigation.navigate('MainTabs' as never);
   };
 
+  // const onTestLocalNotify = async () => {
+  //   await showLocalNotification('Sencity 테스트', '로컬 알림 스모크 테스트');
+  // };
+
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       {/* ✅ FlatList<Row> 로 타입 고정 */}
@@ -60,6 +65,8 @@ export default function SettingsHome() {
         )}
         contentContainerStyle={{ paddingBottom: 12 }}
       />
+      {/* 테스트 버튼 */}
+      {/* <Button title="로컬 알림 테스트" onPress={onTestLocalNotify} /> */}
     </SafeAreaView>
   );
 }

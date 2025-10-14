@@ -2,14 +2,11 @@
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
     "target": "es2019",
-    "lib": ["es2019", "dom"], // ✅ Map/Set/Promise 등 + DOM 타입
-    "downlevelIteration": true, // for..of 안전
-    "skipLibCheck": true // (선택) 라이브러리 타입 검사 스킵
+    "moduleResolution": "bundler",   // ⬅️ RN 권장
+    "lib": ["es2019", "dom"],
+    "downlevelIteration": true,
+    "skipLibCheck": true,
+    "strict": true
   },
-  "include": [
-    "src",
-    "src/types", // ✅ 모듈 보강(d.ts) 파일 위치 포함
-    "index.ts",
-    "index.tsx"
-  ]
+  "include": ["src", "src/types", "index.ts", "index.tsx"]
 }

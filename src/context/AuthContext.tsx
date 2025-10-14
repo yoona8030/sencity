@@ -8,15 +8,25 @@ import React, {
   useCallback,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getJSON, postJSON } from '../api/client';
-import { jwtDecode } from 'jwt-decode';
+import { getJSON } from '../api/client';
+import { sendEvent } from '../utils/metrics';
+
+// ✅ 토큰/로그인 관련은 전부 api/auth로 단일화
+import {
+  login,                   // 서버 로그인 요청
+  handleLoginSuccess,      // 로그인 응답(access/refresh) 저장 (메모리+스토리지)
+  loadTokensIntoMemory,    // 앱 시작 시 스토리지 → 메모리 로드
+  getAccessTokenSync,      // 현재 메모리 access 조회
+  refreshAccessToken,      // 만료 임박/401 대응용
+  clearTokens as clearAllTokens, // 로그아웃 시 토큰 삭제
+} from '../api/auth';
 
 type User = { id: number; email: string; name?: string };
 
 type AuthContextType = {
   isReady: boolean;
   user: User | null;
-  token: string | null;
+  token: string | null; // 메모리 access 토큰 스냅샷(읽기 전용 느낌)
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -31,162 +41,92 @@ const AuthContext = createContext<AuthContextType>({
   refreshProfile: async () => {},
 });
 
-export const AS = {
-  access: 'accessToken',
-  refresh: 'refreshToken',
-  email: 'userEmail',
-} as const;
+// 이메일 remember 용 키(토큰 아님)
+const K_SAVED_EMAIL = 'savedEmail';
 
-const LOGIN_PATH = '/login/';
+// 백엔드 엔드포인트 (고정)
+// NOTE: 프로필 엔드포인트는 서버에 맞춰 조정하세요.
 const PROFILE_PATH = '/user/profile/';
-const REFRESH_PATH = '/token/refresh/';
-
-/** AbortController 없이 타임아웃 */
-async function getWithTimeout<T>(path: string, ms = 10000) {
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('GET timeout')), ms),
-  );
-  return Promise.race([getJSON<T>(path), timeout]) as Promise<T>;
-}
-
-async function loadToken() {
-  return AsyncStorage.getItem(AS.access);
-}
-async function saveToken(t: string | null) {
-  if (t) await AsyncStorage.setItem(AS.access, t);
-  else await AsyncStorage.removeItem(AS.access);
-}
-async function loadRefresh() {
-  return AsyncStorage.getItem(AS.refresh);
-}
-async function saveRefresh(t: string | null) {
-  if (t) await AsyncStorage.setItem(AS.refresh, t);
-  else await AsyncStorage.removeItem(AS.refresh);
-}
-async function clearAllAuth() {
-  await AsyncStorage.multiRemove([AS.access, AS.refresh, AS.email]);
-}
-
-/** access 토큰 exp 파싱 (만료 임박 선제 갱신용, 선택) */
-function parseJwtExp(token: string | null): number | null {
-  if (!token) return null;
-  const parts = token.split('.');
-  if (parts.length < 2) return null;
-  try {
-    const payload = jwtDecode<{ exp?: number }>(token);
-    return typeof payload.exp === 'number' ? payload.exp : null;
-  } catch {
-    return null;
-  }
-}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isReady, setIsReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null); // getAccessTokenSync 스냅샷
 
-  /** (선택) 만료 임박(≤60s) 시 선제 refresh */
+  /** 액세스 토큰 만료 임박 시 선제 갱신 (선택) */
   const ensureFreshAccess = useCallback(async () => {
-    const t = await loadToken();
-    const exp = parseJwtExp(t);
-    if (!exp) return;
-    const now = Math.floor(Date.now() / 1000);
-    if (exp - now <= 60) {
-      await refreshAccess(); // 실패 시 throw
-      const newT = await loadToken();
-      setToken(newT);
-    }
+    // api/auth가 내부에서 exp를 관리하므로, 단순 호출만: 실패해도 무시
+    const newAcc = await refreshAccessToken().catch(() => null);
+    if (newAcc) setToken(newAcc);
   }, []);
 
-  /** refresh 토큰으로 access 재발급 */
-  const refreshAccess = useCallback(async () => {
-    const r = await loadRefresh();
-    if (!r) throw new Error('no refresh token');
-    const res = await postJSON<any>(
-      REFRESH_PATH,
-      { refresh: r },
-      { auth: false },
-    );
-    const newAccess: string | undefined = res?.access ?? res?.token;
-    if (!newAccess) throw new Error('no access in refresh response');
-    await saveToken(newAccess);
-    if (res?.refresh) {
-      // ROTATE_REFRESH_TOKENS=True인 경우 새 refresh도 저장
-      await saveRefresh(res.refresh);
-    }
-    setToken(newAccess);
-    return newAccess;
-  }, []);
-
-  /** 내 프로필 로딩 (실패해도 토큰/세션을 건드리지 않음) */
+  /** 내 프로필 가져와 상태 반영 (실패해도 세션은 유지) */
   const fetchProfileAndSet = useCallback(async () => {
     try {
-      // (선택) 만료 임박 선제 갱신
-      await ensureFreshAccess();
-
-      const me = await getWithTimeout<Partial<User>>(PROFILE_PATH, 10000);
+      await ensureFreshAccess(); // (선택) 선제 갱신
+      const me = await getJSON<Partial<User>>(PROFILE_PATH); // 내부에서 authFetch 사용
       setUser({
         id: Number(me.id ?? 0),
         email: String(me.email ?? ''),
         name: me.name ? String(me.name) : undefined,
       });
     } catch (e) {
-      // 네트워크/일시장애 가능 → 여기서는 user/token을 건드리지 않음
       console.warn('fetchProfileAndSet failed:', e);
     }
   }, [ensureFreshAccess]);
 
+  // 앱 시작 시: 스토리지 → 메모리 로드 후 토큰 스냅샷 세팅, 프로필 시도
   useEffect(() => {
     (async () => {
-      const t = await loadToken();
-      setToken(t);
-      setIsReady(true); // 초기 지연 최소화
-
-      if (t) {
-        // 실패해도 세션 유지
-        await fetchProfileAndSet();
-      } else {
-        setUser(null);
+      try {
+        await loadTokensIntoMemory();
+        const acc = getAccessTokenSync();
+        setToken(acc ?? null);
+        setIsReady(true);
+        if (acc) {
+          await fetchProfileAndSet(); // 실패해도 세션 유지
+        } else {
+          setUser(null);
+        }
+      } catch (e) {
+        setIsReady(true);
+        console.warn('Auth boot init failed:', e);
       }
     })();
   }, [fetchProfileAndSet]);
 
+  /** 로그인: 서버 로그인 → 토큰 저장 → 이벤트 → 프로필 로드 */
   const signIn = useCallback(
     async (email: string, password: string) => {
-      const res = await postJSON<any>(
-        LOGIN_PATH,
-        { email, password },
-        { auth: false },
-      );
+      // 1) 서버 로그인
+      const resp = await login(email, password); // { access, refresh, ... }
+      // 2) 토큰 저장(메모리+스토리지)
+      await handleLoginSuccess(resp);
+      const acc = getAccessTokenSync();
+      setToken(acc ?? null);
 
-      // 백엔드가 'access'로 내려주도록 권장. 호환 위해 token/auth_token도 체크
-      const access: string | undefined =
-        res?.access ?? res?.token ?? res?.auth_token;
-      const refresh: string | undefined = res?.refresh;
+      // 3) 로깅(이벤트)
+      await sendEvent('login').catch(() => {});
 
-      if (!access) throw new Error('토큰이 응답에 없습니다.');
-
-      await AsyncStorage.setItem(AS.email, email);
-      await saveToken(access);
-      setToken(access);
-      if (refresh) await saveRefresh(refresh);
-      else console.warn('로그인 응답에 refresh 토큰이 없습니다.');
-
+      // 4) 프로필 갱신 (실패해도 세션 유지)
       fetchProfileAndSet().catch(() => {});
     },
     [fetchProfileAndSet],
   );
 
+  /** 로그아웃: 토큰/상태 정리 */
   const signOut = useCallback(async () => {
-    await clearAllAuth();
+    await clearAllTokens(); // api/auth에서 access/refresh/exp 제거
     setToken(null);
     setUser(null);
+    // 이메일 remember는 사용자 선택이므로 지우지 않음.
   }, []);
 
+  /** 수동 프로필 새로고침 */
   const refreshProfile = useCallback(async () => {
-    if (!token) return;
+    if (!getAccessTokenSync()) return;
     await fetchProfileAndSet();
-  }, [token, fetchProfileAndSet]);
+  }, [fetchProfileAndSet]);
 
   const value = useMemo(
     () => ({ isReady, user, token, signIn, signOut, refreshProfile }),

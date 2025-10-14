@@ -1,97 +1,77 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Sencity Frontend
+React Native 기반 모바일 앱(Android)
 
-# Getting Started
+#### 프로젝트 소개
++ 도심 내 야생동물 출현 알림 및 신고 서비스
++ 프로젝트명의 의미: Sensor + City로 도시의 위험을 알리는 센서가 되겠다는 의미를 지님
++ 프로젝트 목표
+    + 야생동물 구조: 각 지자체 내 야생동물 구조센터와 공공사업/협업 가능
+    + 민간 피해 감소: 접근선/사용성을 높여 1,2차 피해 예방 -> 어린이/청소년 안전 교육 공공 프로젝트 가능성
+    + 로드킬 2차 사고 방지: 도로교통 서비스 출현 데이터 및 기능 제공으로 대형 서비스로의 진출 가능성
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+#### SWOT 분석
++ S
+    + AI 기술 발전: 영상인식, 딥러닝 정확도 향상 -> 실시간 사진 분석 기능 -> 즉각적인 출현 알림 제공
+    + 위치정보 기술 보편화: GPS/지도 연동이 정교해짐 -> 로드킬 다발 지점/위험 지역 시각화 가능
+    + 사회적 필요성 반영: 야생동물 사고 급증으로 기술 활용 필요성이 커짐
++ W
+    + 데이터 구축 필요성: AI 활용을 위해선 대규모 사진/영상 데이터 라벨링 필수 -> 초기 비용, 노력이 요구
+    + 초기 사용자 기반 부족: 참여가 저조하면 데이터 수집이 지연 -> 알림, 예방 효과가 제한됨
++ O
+    + 지자체/환경부 협력 가능
+    + 공공기관과 데이터 공유 -> 정책, 관리 지원 가능
+    + AI 기술의 발전: YOLO 등 모델 적용 시 동물 분류 및 추적 가능
+    + 확장성: 산불, 홍수 등 다른 위협 요소 알림 시스템으로 발전 가능
++ T
+    + 데이터 정확성 문제: 잘못된 신고/알림으로 불필요한 경고 발생 가능
+    + 야생동물 행동 예측 불확실성: 예측이 어려움 -> 알림 효울성 저하 가능
 
-## Step 1: Start Metro
+#### 사전 요구사항
++ Node.js 18 LTS, npm 10+
++ JDK 17, Android Studio Koala (SDK 35)
++ ADB (실기기 테스트 시 필수)
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+#### 설치 및 실행 방법
++ .env.example 제공
++ 설치 -> 서버 연결 -> 실행 단계
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+1. 패키지 설치
+   ```bash
+   npm install
 
-```sh
-# Using npm
-npm start
+2. 환경 변수 설정
+    + cp .env.example .env
 
-# OR using Yarn
-yarn start
+3. Run (Android)
+    + adb reverse tcp:8000 tcp:8000   # 실기기일 때 필수
+    + npx react-native run-android
+
+#### 환경변수
+.env.example
+```
+API_BASE_URL=http://127.0.0.1:8000/api
+KAKAO_JS_KEY=__REPLACE_ME__
+KAKAO_REST_API_KEY=__REPLACE_ME__
 ```
 
-## Step 2: Build and run your app
-
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+#### 폴더 구조
+```
+src/
+ ├─ screens/
+ ├─ api/
+ ├─ context/
+ ├─ state/
+ ├─ types/
+ ├─ components/
+ ├─ utils/
+ ├─ navigation/
+ ├─ config.ts
+ └─ constants.ts
+android/
+ios/
+App.tsx
 ```
 
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+#### 빌드/실행 시 유의사항
++ node_modules/는 제출본에 없음 -> 반드시 npm install
++ Android 실기기 -> adb reverse 필수

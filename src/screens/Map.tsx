@@ -1,5 +1,5 @@
 // src/screens/Map.tsx
-import React, { useRef, useMemo, useState, useEffect } from 'react';
+import React, { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,16 +15,18 @@ import {
   Platform,
   Modal,
   Pressable,
-  Linking, // ✅ 오타 수정: Liking → Linking
+  Linking,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
 import { KAKAO_JS_KEY, KAKAO_REST_API_KEY } from '@env';
-
+import { sendEvent } from '../utils/metrics';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
 } from 'react-native-reanimated';
+import messaging from '@react-native-firebase/messaging';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
@@ -60,6 +62,15 @@ interface PlaceItem {
   lat: number;
   lng: number;
 }
+type AppBannerDTO = {
+  id: number;
+  text: string;
+  cta_url?: string | null;
+  starts_at: string;
+  ends_at?: string | null;
+  priority: number;
+  is_active: boolean;
+};
 
 const windowHeight = Dimensions.get('window').height;
 const windowWidth = Dimensions.get('window').width;
@@ -137,7 +148,7 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
             }
             window._meAccuracyCircle = new kakao.maps.Circle({
               center: pos,
-              radius: Math.min(accuracy, 300), // 너무 크면 지저분하니 상한선 (원하면 제거)
+              radius: Math.min(accuracy, 300),
               strokeWeight: 2,
               strokeColor: '#2E7DFF',
               strokeOpacity: 0.6,
@@ -265,6 +276,65 @@ export default function Map() {
   const [animalImgUri, setAnimalImgUri] = useState<string | undefined>(
     undefined,
   );
+  // 배너 상태
+  const [banner, setBanner] = useState<{
+    text: string;
+    ctaUrl?: string | null;
+  } | null>(null);
+
+  // 서버에서 활성 배너 가져오기
+  const fetchActiveBanner = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/app-banners/active/`);
+      if (!res.ok) throw new Error(String(res.status));
+      const j = await res.json(); // { data: AppBannerDTO | null }
+      const d: AppBannerDTO | null = j?.data ?? null;
+      if (!d) {
+        setBanner(null);
+        return;
+      }
+      setBanner({ text: d.text, ctaUrl: d.cta_url || null });
+    } catch (e) {
+      if (__DEV__) console.log('[banner] fetch fail', e);
+    }
+  }, []);
+
+  // 화면 진입/최초 로드
+  useEffect(() => {
+    fetchActiveBanner();
+  }, [fetchActiveBanner]);
+
+  // 주기적 갱신(60초)
+  useEffect(() => {
+    const id = setInterval(fetchActiveBanner, 60_000);
+    return () => clearInterval(id);
+  }, [fetchActiveBanner]);
+
+  // FCM 데이터푸시로 즉시 갱신(서버에서 kind:"banner" 로 보냄)
+useEffect(() => {
+  const unsub = messaging().onMessage(msg => {
+    const data = msg?.data ?? {};
+    const kind = typeof data.kind === 'string' ? data.kind : undefined;
+
+    if (kind === 'banner') {
+      // 문자열만 수용 (서버가 실수로 객체/빈값을 보낸 경우 방어)
+      const text =
+        typeof data.text === 'string' ? data.text.trim() : '';
+      const cta =
+        typeof data.cta_url === 'string' ? data.cta_url.trim() : undefined;
+
+      if (text) {
+        setBanner({ text, ctaUrl: cta ?? null });
+      } else {
+        // 텍스트가 없으면 서버에서 최신 배너 한 번 더 가져오기
+        fetchActiveBanner();
+      }
+    }
+  });
+
+  return unsub;
+}, [fetchActiveBanner]);
+
 
   const candidate =
     animalInfo?.proxied_image_url ||
@@ -353,17 +423,15 @@ export default function Map() {
   };
 
   function safeNameFromServerRow(r: any): string {
-    // 서버에 어떤 키가 오는지에 맞춰 후보를 여러 개 확인
     const cand =
-      r.name ?? // 있으면 가장 우선
-      r.alias ?? // 혹시 별칭 필드가 alias인 경우
-      r.title ?? // title을 주는 백엔드도 있음
-      r.address ?? // 주소 문자열
+      r.name ??
+      r.alias ??
+      r.title ??
+      r.address ??
       null;
 
     if (typeof cand === 'string' && cand.trim()) return cand.trim();
 
-    // 좌표 기반 대체 이름
     const lat = Number(r.latitude);
     const lng = Number(r.longitude);
     if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
@@ -406,7 +474,6 @@ export default function Map() {
   };
 
   const pushPlaceToServer = async (place: PlaceItem) => {
-    const safeName = derivePlaceName(place);
     const body = {
       location: String(place.location || '').trim(),
       latitude: Number(place.lat),
@@ -414,8 +481,6 @@ export default function Map() {
       name: String(place.name || place.location || '장소'),
       client_id: String(place.id),
     };
-
-    console.log('[saved-places POST body]', body);
 
     const res = await authFetch(`${BACKEND_URL}/saved-places/`, {
       method: 'POST',
@@ -441,30 +506,22 @@ export default function Map() {
 
   const syncWithServer = async () => {
     try {
-      // 1) 업로드
       const unsynced = savedPlaces.filter(p => !p.remoteId);
       for (const p of unsynced) {
         await pushPlaceToServer(p);
       }
 
-      // 2) 서버 목록
       const serverList = await fetchServerPlaces();
 
-      // ✅ Map 대신 객체(Record)로 인덱싱
       const byId: Record<string, PlaceItem> = {};
-      for (const s of serverList) {
-        byId[s.id] = s;
-      }
+      for (const s of serverList) byId[s.id] = s;
 
-      // ✅ Set 없이 고유 id 배열 만들기
       const allIds = [
         ...savedPlaces.map(p => p.id),
         ...serverList.map(s => s.id),
       ].filter((v, i, arr) => arr.indexOf(v) === i);
 
-      // 3) 병합: 필드별 "유효한 값" 우선
       const merged: PlaceItem[] = [];
-
       for (const id of allIds) {
         const local = savedPlaces.find(p => p.id === id) || null;
         const remote = byId[id] || null;
@@ -473,18 +530,15 @@ export default function Map() {
           merged.push({
             id,
             remoteId: remote.remoteId ?? local.remoteId,
-            // 이름: 공백 아닌 값 우선, 없으면 파생
             name:
               (remote.name && remote.name.trim()) ||
               (local.name && local.name.trim()) ||
               derivePlaceName(local) ||
               '장소',
-            // 주소
             location:
               (remote.location && remote.location.trim()) ||
               (local.location && local.location.trim()) ||
               '',
-            // 좌표: 서버 있으면 서버, 없으면 로컬
             lat: remote.lat ?? local.lat ?? 0,
             lng: remote.lng ?? local.lng ?? 0,
           });
@@ -600,7 +654,9 @@ export default function Map() {
   const bannerMargin = 5;
 
   const bannerAnimatedStyle = useAnimatedStyle(() => {
-    const top = animatedPosition.value - bannerHeight - bannerMargin;
+    // 시트에 가리지 않도록 최소 y 보장
+    const minTop = (Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0) + 60;
+    const top = Math.max(minTop, animatedPosition.value - bannerHeight - bannerMargin);
     return { position: 'absolute', left: 8, right: 8, top, zIndex: 999 };
   });
 
@@ -887,12 +943,10 @@ export default function Map() {
 
     Geolocation.getCurrentPosition(
       position => {
-        // ✅ accuracy까지 구조분해
         const { latitude, longitude, accuracy } = position.coords;
 
         setCurrentLocation({ lat: latitude, lng: longitude });
 
-        // ✅ WebView에 안전하게 전달 (문자열 보간 대신 JSON 사용)
         const payload = JSON.stringify({
           lat: latitude,
           lng: longitude,
@@ -929,6 +983,12 @@ export default function Map() {
     });
   }
 
+  useFocusEffect(
+    useCallback(() => {
+      sendEvent('map_view');
+    }, [])
+  );
+
   return (
     <>
       <StatusBar
@@ -947,16 +1007,15 @@ export default function Map() {
             domStorageEnabled
             cacheEnabled={false}
             cacheMode="LOAD_NO_CACHE"
-            /** ✅ WebView에서 지오로케이션 허용 */
             geolocationEnabled={true}
             {...(Platform.OS === 'android'
               ? {
-                  // @ts-ignore — react-native-webview 타입에 아직 이 prop 정의가 없음(런타임은 동작)
+                  // @ts-ignore
                   onGeolocationPermissionsShowPrompt: (
                     _origin: string,
                     callback: (allow: boolean, retain: boolean) => void,
                   ) => {
-                    callback(true, true); // allow & remember
+                    callback(true, true);
                     return true;
                   },
                 }
@@ -1192,13 +1251,24 @@ export default function Map() {
           </TouchableOpacity>
         </View>
 
-        <Animated.View style={[bannerAnimatedStyle]}>
-          <View style={styles.banner}>
-            <Text style={styles.bannerText} numberOfLines={1}>
-              오후 9시 30분경 "##역" 반경 2KM 이내에 고라니 출현
-            </Text>
-          </View>
-        </Animated.View>
+        {banner && (
+          <Animated.View style={[bannerAnimatedStyle]}>
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={() => {
+                if (banner.ctaUrl) {
+                  Linking.openURL(banner.ctaUrl).catch(() => {});
+                }
+              }}
+            >
+              <View style={styles.banner}>
+                <Text style={styles.bannerText} numberOfLines={1}>
+                  {banner.text}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
         <BottomSheet
           ref={bottomSheetRef}

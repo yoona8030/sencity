@@ -1,7 +1,8 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
-apply plugin: "com.google.gms.google-services"
+
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
 react { autolinkLibrariesWithApp() }
 
@@ -22,7 +23,13 @@ android {
     versionCode = 1
     versionName = "1.0"
   }
-
+  compileOptions {
+  sourceCompatibility JavaVersion.VERSION_17
+  targetCompatibility JavaVersion.VERSION_17
+  }
+  kotlinOptions {
+    jvmTarget = '17'
+  }
   signingConfigs {
     debug {
       storeFile = file('debug.keystore')
@@ -87,3 +94,4 @@ dependencies {
 }
 
 apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
+apply plugin: "com.google.gms.google-services"  // 앱 밖에서도 알림
