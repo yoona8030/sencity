@@ -1,7 +1,7 @@
 <resources>
   <style name="SencityAppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
     <!-- 시스템 스플래시: 로고 PNG + #000 -->
-    <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo_inset</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
     <item name="android:windowSplashScreenBackground">@color/app_black</item>
     <item name="android:windowSplashScreenAnimationDuration">0</item>
     <item name="android:windowSplashScreenBrandingImage">@null</item>
@@ -9,6 +9,7 @@
     <!-- 앱 첫 프레임 전까지 배경: 중앙에 동일 PNG -->
     <item name="android:windowBackground">@drawable/splash_black_center</item>
 
+    <!-- 시스템 바도 #000로 통일 -->
     <item name="android:statusBarColor">@color/app_black</item>
     <item name="android:navigationBarColor">@color/app_black</item>
     <item name="android:navigationBarDividerColor">@color/app_black</item>

@@ -1,0 +1,11 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 1) 전체 검은 배경 -->
+    <item android:drawable="@color/app_black" />
+
+    <!-- 2) 중앙 로고: inset이 적용된 드로어블을 그대로 참조 -->
+    <item
+        android:gravity="center"
+        android:drawable="@drawable/splash_logo_inset" />
+
+</layer-list>

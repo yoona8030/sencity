@@ -10,8 +10,7 @@ const AS = {
 } as const;
 
 // TODO: 실제 동기화할 엔드포인트 목록(예시)
-// 백엔드 기본 URL (사용자 메모: 192.168.45.122:8000/api)
-const API_BASE = 'http://192.168.45.122:8000/api';
+const API_BASE = 'http://127.0.0.1:8000/api';
 const PREFETCH_ENDPOINTS = [
   '/animals/',
   '/location/regions/',

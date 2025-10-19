@@ -2,11 +2,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { jwtDecode } from 'jwt-decode';
 
-/** ① 서버 주소: 실제 환경에 맞게 하나로 고정하세요.
- *   - 에뮬레이터(AVD): http://10.0.2.2:8000/api
- *   - 실기기:        http://<PC_로컬IP>:8000/api  (예: 192.168.x.x)
- *   - 개발 PC:       http://127.0.0.1:8000/api  (웹/PC에서 직접 호출 시)
- */
 export const BASE_URL = 'http://127.0.0.1:8000/api';
 
 const DEFAULT_TIMEOUT_MS = 8000; // 업로드 제외 일반 요청 타임아웃(현실화)

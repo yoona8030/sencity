@@ -34,7 +34,7 @@ type Props = { navigation: SignUpScreenNavigationProp };
 
 type EmailCheckResponse = { is_duplicate: boolean };
 
-const API_BASE = 'http://10.0.2.2:8000/api';
+const API_BASE = 'http://127.0.0.1:8000/api';
 
 const SignUp: React.FC<Props> = ({ navigation }) => {
   const insets = useSafeAreaInsets();

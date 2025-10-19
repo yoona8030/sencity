@@ -9,10 +9,12 @@ import {
   Platform,
   Modal,
 } from 'react-native';
+import { API_BASE_URL } from '@env';
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -31,7 +33,7 @@ import {
   Permission,
 } from 'react-native-permissions';
 import { launchImageLibrary } from 'react-native-image-picker';
-
+import { createReportAuto } from '../api/report';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { recognizeAnimal, reverseGeocodeKakao } from '../api';
 
@@ -64,6 +66,7 @@ export default function CameraScreen() {
 
   const [localDoneVisible, setLocalDoneVisible] = useState(false); // 즉시 안내
   const [serverDoneVisible, setServerDoneVisible] = useState(false); // 서버 완료
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -76,6 +79,40 @@ export default function CameraScreen() {
       }
     })();
   }, [hasPermission, requestPermission, askingCam]);
+
+  useEffect(() => {
+    (async () => {
+      const keys = await AsyncStorage.getAllKeys();
+      const pairs = await AsyncStorage.multiGet(keys);
+      const kv = Object.fromEntries(pairs);
+      console.log('[AS_KEYS]', keys);
+      // 토큰 후보만 출력
+      const candidates = Object.entries(kv).filter(
+        ([k]) => /access|token|jwt|auth/i.test(k)
+      );
+      console.log('[AS_TOKEN_CANDIDATES]', candidates);
+      // 값이 객체(JSON)일 수도 있으니 파싱 시도
+      for (const [k, v] of candidates) {
+        try {
+          const j = JSON.parse(v ?? 'null');
+          console.log(`[AS_JSON:${k}]`, j);
+        } catch {}
+      }
+    })();
+  }, []);
+
+  const pingApi = async () => {
+    try {
+      console.log('[PING]', API_BASE_URL);
+      const base = API_BASE_URL.replace(/\/+$/, '');
+      const r = await fetch(`${base}/health/`, { method: 'GET' }); // 엔드포인트 맞게
+      console.log('[PING][OK]', r.status);
+      Alert.alert('API 연결', `OK ${r.status}`);
+    } catch (e: any) {
+      console.log('[PING][ERR]', e?.message ?? e);
+      Alert.alert('API 연결 실패', String(e?.message ?? e));
+    }
+  };
 
   const locPerm: Permission | null = useMemo(() => {
     if (Platform.OS === 'ios') return PERMISSIONS.IOS.LOCATION_WHEN_IN_USE;
@@ -179,24 +216,85 @@ export default function CameraScreen() {
     setStage('preview');
     setAiLabel(null);
     setRecogError(false);
-
+    
     await runRecognize(uri); // <-- { uri } 아님
   };
 
-  const handleReport = async () => {
-    // 1) 즉시 사용자 안내
-    setLocalDoneVisible(true);
+  const labelToAnimalId: Record<string, number> = {
+    '멧토끼': 12,
+    '노루': 13,
+    '다람쥐': 14,
+    '고라니': 15,
+    '반달가슴곰': 16,
+    '멧돼지': 17,
+    '중대백로': 19,
+    '너구리': 23,
+    '족제비': 26,
+    '왜가리': 28,
+    '청설모': 30,
+  };
+  const aliasToKor: Record<string, string> = {
+    'goat': '고라니',
+    'wild boar': '멧돼지',
+    'raccoon': '너구리',
+    'chipmunk': '다람쥐',
+    'weasel': '족제비',
+    'hare': '멧토끼',
+    'roe deer': '노루',
+    'asiatic black bear': '반달가슴곰',
+    'great egret': '중대백로',
+    'heron': '왜가리',
+    'squirrel': '청설모',
+  };
 
-    // 2) (추후) 서버 전송 로직 연결
+  // 공백 제거 + 소문자 변환 등 정규화
+  const norm = (s: string) => s?.trim().toLowerCase().replace(/\s+/g, ' ') ?? '';
+
+  const handleReport = async () => {
+    console.log('[DEBUG] 신고 버튼 클릭됨');
     try {
-      await new Promise(res => setTimeout(res, 900));
-      setLocalDoneVisible(false);
+      // (로딩 시작)
+      setSubmitting(true);
+
+      if (!photoUri) {
+        Alert.alert('신고 실패', '사진이 없습니다. 먼저 촬영해주세요.');
+        return;
+      }
+      if (!aiLabel) {
+        Alert.alert('신고 실패', 'AI 인식 결과가 없습니다. 재촬영 후 다시 시도해주세요.');
+        return;
+      }
+
+      const aiNorm = norm(aiLabel);
+      const kor = labelToAnimalId[aiLabel] ? aiLabel : (aliasToKor[aiNorm] ?? aiLabel);
+      const animalId = labelToAnimalId[kor];
+
+      if (typeof animalId !== 'number') {
+        console.log('[DEBUG] aiLabel=', aiLabel, 'aiNorm=', aiNorm, 'kor=', kor);
+        Alert.alert('신고 실패', `라벨(${aiLabel})에 매핑된 동물 ID가 없습니다.`);
+        return;
+      }
+
+      const resp = await createReportAuto({
+        photoUri,
+        animalId,
+        status: 'checking',
+        lat: coords?.lat,
+        lng: coords?.lng,
+        address: address ?? undefined,
+      });
+
+      console.log('[REPORT OK]', resp);
       setServerDoneVisible(true);
-    } catch {
-      setLocalDoneVisible(false);
-      Alert.alert('전송 실패', '네트워크 상태를 확인해주세요.');
+    } catch (e: any) {
+      console.log('[DEBUG] 신고 실패', e);
+      Alert.alert('신고 실패', String(e?.message ?? e));
+    } finally {
+      // (로딩 종료)
+      setSubmitting(false);
     }
   };
+
 
   const bottomSafePad = 12 + tabBarH + insets.bottom + BOTTOM_BTN_H;
 
@@ -314,24 +412,14 @@ export default function CameraScreen() {
         </TouchableOpacity>
       )}
 
-      {stage === 'preview' && !recogError && (
-        <TouchableOpacity
-          onPress={handleReport}
-          style={[
-            styles.bottomBtn,
-            { bottom: 12 + tabBarH + insets.bottom, height: BOTTOM_BTN_H },
-          ]}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.bottomBtnText}>신고하기</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* 인식 실패 시: 재촬영 / 갤러리 */}
-      {stage === 'preview' && recogError && (
+      {stage === 'preview' && (
         <View
-          style={[styles.bottomRow, { bottom: 12 + tabBarH + insets.bottom }]}
+          style={[
+            styles.bottomRow,
+            { bottom: 12 + tabBarH + insets.bottom },
+          ]}
         >
+          {/* 1) 다시 찍기 */}
           <TouchableOpacity
             onPress={() => {
               setPhotoUri(null);
@@ -339,18 +427,45 @@ export default function CameraScreen() {
               setRecogError(false);
               setStage('camera');
             }}
-            style={[styles.smallBtn, styles.smallBtnYellow]}
+            style={[styles.smallBtn, styles.smallBtnGrey, { flex: 1, marginRight: 8 }]}
             activeOpacity={0.85}
           >
-            <Text style={[styles.smallBtnText, { color: '#000' }]}>재촬영</Text>
+            <Text style={[styles.smallBtnText, { color: '#333', textAlign: 'center' }]}>
+              다시 찍기
+            </Text>
           </TouchableOpacity>
 
+          {/* 2) 앨범 선택 */}
           <TouchableOpacity
             onPress={handlePickFromGallery}
-            style={[styles.smallBtn, styles.smallBtnGrey]}
+            style={[styles.smallBtn, styles.smallBtnYellow, { flex: 1, marginHorizontal: 8 }]}
             activeOpacity={0.85}
           >
-            <Text style={[styles.smallBtnText, { color: '#333' }]}>앨범</Text>
+            <Text style={[styles.smallBtnText, { color: '#000', textAlign: 'center' }]}>
+              앨범 선택
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={pingApi}
+            style={[styles.smallBtn, { backgroundColor: '#007BFF', flex: 1 }]}
+          >
+            <Text style={styles.smallBtnText}>API 연결 테스트</Text>
+          </TouchableOpacity>
+
+          {/* 3) 신고하기 (인식 실패 시 비활성화) */}
+          <TouchableOpacity
+            onPress={handleReport}
+            disabled={submitting}
+            style={[
+              styles.smallBtn,
+              styles.smallBtnRed,
+              { flex: 1, marginLeft: 8, opacity: recogError ? 0.5 : 1 },
+            ]}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.smallBtnText, { color: '#fff', textAlign: 'center' }]}>
+              신고하기
+            </Text>
           </TouchableOpacity>
         </View>
       )}
@@ -507,17 +622,19 @@ const styles = StyleSheet.create({
     right: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
+      
   },
   smallBtn: {
     height: 44,
-    paddingHorizontal: 18,
+    paddingHorizontal: 10,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 110,
+    minWidth: 80,
   },
   smallBtnYellow: { backgroundColor: '#FEBA15' },
   smallBtnGrey: { backgroundColor: '#D2D2D2' },
+  smallBtnRed: { backgroundColor: '#DD0000' }, // ← 추가
   smallBtnText: { fontWeight: '800', fontSize: 15 },
 
   modalBackdrop: {

@@ -1,4 +1,4 @@
 <resources>
-    <color name="bootsplash_background">#0e0e0e</color>
-    <color name="app_window_background">#FFFFFF</color>
+  <color name="app_black">#000000</color>
+  <color name="white">#FFFFFF</color>
 </resources>
