@@ -9,7 +9,6 @@ import {
   Platform,
   Modal,
 } from 'react-native';
-import { API_BASE_URL } from '@env';
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -100,19 +99,6 @@ export default function CameraScreen() {
       }
     })();
   }, []);
-
-  const pingApi = async () => {
-    try {
-      console.log('[PING]', API_BASE_URL);
-      const base = API_BASE_URL.replace(/\/+$/, '');
-      const r = await fetch(`${base}/health/`, { method: 'GET' }); // 엔드포인트 맞게
-      console.log('[PING][OK]', r.status);
-      Alert.alert('API 연결', `OK ${r.status}`);
-    } catch (e: any) {
-      console.log('[PING][ERR]', e?.message ?? e);
-      Alert.alert('API 연결 실패', String(e?.message ?? e));
-    }
-  };
 
   const locPerm: Permission | null = useMemo(() => {
     if (Platform.OS === 'ios') return PERMISSIONS.IOS.LOCATION_WHEN_IN_USE;
@@ -445,14 +431,8 @@ export default function CameraScreen() {
               앨범 선택
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={pingApi}
-            style={[styles.smallBtn, { backgroundColor: '#007BFF', flex: 1 }]}
-          >
-            <Text style={styles.smallBtnText}>API 연결 테스트</Text>
-          </TouchableOpacity>
 
-          {/* 3) 신고하기 (인식 실패 시 비활성화) */}
+          {/* 3) 신고하기 */}
           <TouchableOpacity
             onPress={handleReport}
             disabled={submitting}
