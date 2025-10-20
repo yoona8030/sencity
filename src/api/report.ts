@@ -264,3 +264,56 @@ export async function createReportNoAuth(raw: CreateReportParams) {
  * 호환용 별칭
  * ========================= */
 export const createReport = createReportAuto;
+
+/* =========================
+ * 내 신고 포인트 조회 (JWT 필요)
+ * ========================= */
+export type ReportPoint = {
+  id: number;
+  animalId: number;
+  animalName?: string | null;
+  lat: number;
+  lng: number;
+  createdAt: string; // ISO
+  status: 'checking' | 'confirmed' | 'rejected' | 'accepted' | 'rejected';
+  // ↑ 서버 상태키에 맞춰 'confirmed' vs 'accepted' 중 하나만 쓰면 됩니다.
+};
+
+/**
+ * 내가 등록한 신고 포인트 목록을 가져옵니다.
+ * @param since ISO 문자열(선택). 예: '2025-01-01T00:00:00Z'
+ */
+export async function fetchReportPoints(
+  since?: string,
+): Promise<ReportPoint[]> {
+  const access = await getAccessTokenOrRefresh(); // 기존 헬퍼 재사용
+  let url = buildUrl('/reports/my-points/'); // 백엔드 라우트와 정확히 일치해야 함
+  if (since) {
+    const sep = url.includes('?') ? '&' : '?';
+    url = `${url}${sep}since=${encodeURIComponent(since)}`;
+  }
+
+  const res = await fetchWithTimeout(
+    url,
+    {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${access}`,
+      },
+    },
+    10000,
+  );
+
+  const bodyText = await readSafeText(res);
+  if (!res.ok) {
+    throw new Error(
+      `내 신고 포인트 조회 실패: ${res.status} ${bodyText}`.trim(),
+    );
+  }
+  try {
+    return JSON.parse(bodyText) as ReportPoint[];
+  } catch {
+    return [];
+  }
+}

@@ -93,7 +93,7 @@ export default function Report() {
   const [appliedPeriod, setAppliedPeriod] = useState('날짜 조회');
 
   const bottomSheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ['40%'], []);
+  const snapPoints = useMemo(() => ['45%'], []);
 
   const route = useRoute<RouteProp<TabParamList, 'Report'>>();
   const navigation = useNavigation();
@@ -506,7 +506,7 @@ export default function Report() {
           <Text style={styles.filterTitle}>기간 선택</Text>
           <TouchableOpacity
             style={styles.dropdownButton}
-            onPress={() => bottomSheetRef.current?.snapToIndex(0)}
+            onPress={() => bottomSheetRef.current?.expand()}
           >
             <Text style={styles.dropdownButtonText}>{selectedPeriod}</Text>
             <Text style={styles.dropdownArrow}>▼</Text>

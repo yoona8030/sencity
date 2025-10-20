@@ -17,6 +17,7 @@ import {
   Pressable,
   Linking, // ✅ 오타 수정: Liking → Linking
 } from 'react-native';
+import { fetchReportPoints } from '../api/report'; // ✅ 내 신고 API
 import { WebView } from 'react-native-webview';
 import { KAKAO_JS_KEY, KAKAO_REST_API_KEY } from '@env';
 
@@ -73,6 +74,26 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
   <title>Kakao Map</title>
   <style>
     html, body, #map { margin:0; padding:0; width:100vw; height:100vh; }
+    /* ---- 신고 비콘(맥동) ---- */
+    .beacon-wrap { position:relative; width:24px; height:24px; transform: translate(-50%, -50%); }
+    .beacon-core {
+      width: 14px; height: 14px; border-radius: 7px;
+      background: #fff; border: 3px solid #DD0000;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+      position:absolute; left:50%; top:50%; transform: translate(-50%, -50%);
+    }
+    .beacon-ring {
+      position:absolute; left:50%; top:50%;
+      width: 42px; height: 42px; border-radius: 21px;
+      background: #DD0000;
+      transform: translate(-50%, -50%) scale(0.6);
+      opacity: .45;
+      animation: pulse 1.6s ease-out infinite;
+    }
+    @keyframes pulse {
+      0% { transform: translate(-50%, -50%) scale(0.6); opacity:.45; }
+      100% { transform: translate(-50%, -50%) scale(2.1); opacity:0; }
+    }
   </style>
 </head>
 <body>
@@ -102,11 +123,11 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         return new kakao.maps.MarkerImage(src, size, { offset: new kakao.maps.Point(d/2, d/2) });
       }
 
+      // ====== 기존 저장 장소(그대로 둠) ======
       window._savedMarkers = {};
       window._tempMarkers = {};
       window._savedVisible = true;
 
-      // 내 위치 마커 표시
       window._meMarker = null;
       window._meAccuracyCircle = null;
 
@@ -117,7 +138,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
       window.setMyLocation = function(lat, lng, accuracy) {
         try {
           var pos = new kakao.maps.LatLng(lat, lng);
-          // 1) 마커 생성/이동
           if (!window._meMarker) {
             var img = makeBlueMarkerImage(22);
             window._meMarker = new kakao.maps.Marker({
@@ -130,30 +150,21 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
             window._meMarker.setPosition(pos);
             window._meMarker.setMap(window.map);
           }
-          // 2) 정확도 원(옵션)
           if (typeof accuracy === 'number' && accuracy > 0) {
             if (window._meAccuracyCircle) {
               window._meAccuracyCircle.setMap(null);
             }
             window._meAccuracyCircle = new kakao.maps.Circle({
               center: pos,
-              radius: Math.min(accuracy, 300), // 너무 크면 지저분하니 상한선 (원하면 제거)
-              strokeWeight: 2,
-              strokeColor: '#2E7DFF',
-              strokeOpacity: 0.6,
-              strokeStyle: 'shortdash',
-              fillColor: '#2E7DFF',
-              fillOpacity: 0.12
+              radius: Math.min(accuracy, 300),
+              strokeWeight: 2, strokeColor: '#2E7DFF', strokeOpacity: 0.6, strokeStyle: 'shortdash',
+              fillColor: '#2E7DFF', fillOpacity: 0.12
             });
             window._meAccuracyCircle.setMap(window.map);
           }
-          // 3) 카메라 이동
           window.map.panTo(pos);
           return true;
-        } catch(e) {
-          console.log('setMyLocation error', e);
-          return false;
-        }
+        } catch(e) { return false; }
       };
 
       window.setSavedMarkers = function (places) {
@@ -170,7 +181,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
           window._savedMarkers[p.id] = marker;
         });
       };
-
       window.setSavedMarkersVisible = function (visible) {
         window._savedVisible = !!visible;
         for (var id in window._savedMarkers) {
@@ -178,7 +188,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
           mk.setMap(window._savedVisible ? window.map : null);
         }
       };
-
       window.addSavedMarker = function (place) {
         try { if (typeof place === 'string') place = JSON.parse(place); } catch (e) {}
         if (!place) return;
@@ -187,12 +196,72 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         var marker = new kakao.maps.Marker({ position: pos, map: window._savedVisible ? window.map : null, image: img });
         window._savedMarkers[place.id] = marker;
       };
-
       window.focusMarker = function (id) {
         var m = window._savedMarkers[id] || window._tempMarkers[id];
         if (!m) return false;
         window.map.panTo(m.getPosition());
         return true;
+      };
+
+      // ====== ✅ 신규: "내 신고" 비콘 오버레이 ======
+      window._reportOverlays = {};     // id -> CustomOverlay
+      window._reportsVisible = false;  // 기본 비표시
+
+      function makeBeaconDom() {
+        var wrap = document.createElement('div');
+        wrap.className = 'beacon-wrap';
+        var ring = document.createElement('div');
+        ring.className = 'beacon-ring';
+        var core = document.createElement('div');
+        core.className = 'beacon-core';
+        wrap.appendChild(ring);
+        wrap.appendChild(core);
+        return wrap;
+      }
+
+      window.setReports = function(reports) {
+        try { if (typeof reports === 'string') reports = JSON.parse(reports); } catch (e) {}
+        // 기존 제거
+        for (var id in window._reportOverlays) {
+          window._reportOverlays[id].setMap(null);
+        }
+        window._reportOverlays = {};
+        (reports || []).forEach(function(r) {
+          var pos = new kakao.maps.LatLng(r.lat, r.lng);
+          var dom = makeBeaconDom();
+          var ov = new kakao.maps.CustomOverlay({
+            position: pos,
+            content: dom,
+            yAnchor: 0.5,
+            xAnchor: 0.5,
+            zIndex: 8000
+          });
+          if (window._reportsVisible) ov.setMap(window.map);
+          window._reportOverlays[r.id] = ov;
+        });
+      };
+
+      window.setReportsVisible = function(visible) {
+        window._reportsVisible = !!visible;
+        for (var id in window._reportOverlays) {
+          window._reportOverlays[id].setMap(window._reportsVisible ? window.map : null);
+        }
+      };
+
+      window.addReport = function(report) {
+        try { if (typeof report === 'string') report = JSON.parse(report); } catch (e) {}
+        if (!report) return;
+        var pos = new kakao.maps.LatLng(report.lat, report.lng);
+        var dom = makeBeaconDom();
+        var ov = new kakao.maps.CustomOverlay({
+          position: pos,
+          content: dom,
+          yAnchor: 0.5,
+          xAnchor: 0.5,
+          zIndex: 8000
+        });
+        if (window._reportsVisible) ov.setMap(window.map);
+        window._reportOverlays[report.id] = ov;
       };
     });
   </script>
@@ -247,6 +316,8 @@ async function refreshAccessToken() {
 }
 
 export default function Map() {
+  const [Reports, setReports] = useState<any[] | null>(null);
+  const [reportsVisible, setReportsVisible] = useState(false);
   const bottomSheetRef = useRef<BottomSheet>(null);
   const COMPACT_HEIGHT = 130;
   const snapPoints = useMemo(() => ['35%', '50%', '80%'], []);
@@ -283,6 +354,31 @@ export default function Map() {
   useEffect(() => {
     setAnimalImgUri(computedUri || undefined);
   }, [computedUri]);
+
+  useEffect(() => {
+    async function loadReports() {
+      try {
+        const list = await fetchReportPoints();
+        setReports(list);
+
+        const payload = JSON.stringify(list);
+        const js = `
+          (function(){
+            try {
+              if (window.setReports) window.setReports(${payload});
+              // 표시 ON은 누락! (버튼으로만 조절)
+            } catch(e){ console.log('report inject err', e); }
+            true;
+          })();
+        `;
+        mapRef.current?.injectJavaScript(js);
+        // ❌ 삭제: setReportsVisible(true)
+      } catch (e) {
+        console.warn('신고 포인트 로드 실패', e);
+      }
+    }
+    loadReports();
+  }, []);
 
   const [placeToSave, setPlaceToSave] = useState<PlaceItem | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -351,6 +447,21 @@ export default function Map() {
       return null;
     }
   };
+  // WebView로 "신고 비콘"도 현 상태대로 재주입
+  function syncReportsOnWebview(list: any[] | null, visible: boolean) {
+    if (!mapRef.current) return;
+    const payload = JSON.stringify(list || []);
+    const js = `
+      (function(){
+        try {
+          if (window.setReports) window.setReports(${payload});
+          if (window.setReportsVisible) window.setReportsVisible(${visible});
+        } catch(e){ console.log('reports sync err', e); }
+        true;
+      })();
+    `;
+    mapRef.current.injectJavaScript(js);
+  }
 
   function safeNameFromServerRow(r: any): string {
     // 서버에 어떤 키가 오는지에 맞춰 후보를 여러 개 확인
@@ -963,6 +1074,8 @@ export default function Map() {
               : null)}
             onLoadEnd={() => {
               syncSavedMarkers(savedPlaces);
+              // 신고 비톤 상태
+              syncReportsOnWebview(Reports, reportsVisible);
             }}
             onError={({ nativeEvent }) => {
               console.warn('WebView error: ', nativeEvent);
@@ -1165,16 +1278,22 @@ export default function Map() {
           <TouchableOpacity
             style={[styles.fabButton]}
             onPress={() => {
-              setSavedVisible(prev => {
-                const next = !prev;
-                const js = `
-                  (function(){
-                    try { if (window.setSavedMarkersVisible) window.setSavedMarkersVisible(${next}); } catch(e){}
-                    true;
-                  })();`;
-                mapRef.current?.injectJavaScript(js);
-                return next;
-              });
+              // WebView 쪽에서 현재 표시 여부를 직접 판단하도록 로직 구성
+              const js = `
+                (function() {
+                  try {
+                    if (window._reportsVisible) {
+                      window.setReportsVisible(false);
+                      window._reportsVisible = false;
+                    } else {
+                      window.setReportsVisible(true);
+                      window._reportsVisible = true;
+                    }
+                  } catch(e) { console.log(e); }
+                  true;
+                })();
+              `;
+              mapRef.current?.injectJavaScript(js);
             }}
           >
             <Image
