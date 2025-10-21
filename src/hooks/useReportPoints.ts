@@ -1,30 +1,35 @@
-import { useEffect, useState, useCallback } from 'react';
-import { fetchReportPoints } from '../api/report';
+// src/hooks/useReportPoints.ts
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { fetchReportPointsByScope } from '../api/report';
 import type { ReportPoint } from '../types/report';
 
-export function useReportPoints(enabled: boolean) {
-  const [data, setData] = useState<ReportPoint[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+export type ReportScope = 'mine' | 'all';
 
-  const load = useCallback(async () => {
-    if (!enabled) return;
-    if (data) return; // 1회 캐시 (원하면 제거)
+export function useReportPoints(initialScope: ReportScope = 'all') {
+  const [scope, setScope] = useState<ReportScope>(initialScope);
+  const [points, setPoints] = useState<ReportPoint[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const sinceRef = useRef<string | undefined>(undefined);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setErr(null);
-      const rows = await fetchReportPoints();
-      setData(rows);
+      const rows = await fetchReportPointsByScope(scope, sinceRef.current);
+      setPoints(rows);
+      console.log(`[REPORT] fetched scope=${scope} count:`, rows.length);
     } catch (e: any) {
-      setErr(String(e?.message ?? e));
+      setError(e?.message ?? '불러오기 실패');
+      setPoints([]);
     } finally {
       setLoading(false);
     }
-  }, [enabled, data]);
+  }, [scope]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    reload();
+  }, [reload]);
 
-  return { data, loading, err, reload: () => setData(null) };
+  return { scope, setScope, points, loading, error, reload };
 }

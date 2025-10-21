@@ -129,3 +129,53 @@ export async function handleLoginSuccess(resp: LoginResponse): Promise<void> {
     throw new Error('유효하지 않은 로그인 응답입니다.(토큰 누락)');
   await saveLoginTokens({ access, refresh });
 }
+
+/* ===== 인증 부착 fetch 래퍼 ===== */
+/**
+ * 인증 헤더를 자동으로 붙이고, 401이면 refresh 후 1회 재시도합니다.
+ * - headers는 호출자가 넘긴 값을 보존하며 Authorization만 덮어씁니다.
+ * - 반환: fetch Response 그대로
+ */
+export async function auth(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  // 초기화가 아직 안 된 상태에서 호출될 수 있으므로, 첫 호출에서라도 안전 가드
+  if (!initialized) await loadTokensIntoMemory();
+
+  const headers = new Headers(init.headers as HeadersInit | undefined);
+
+  const attachAuth = (token: string | null) => {
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    // JSON 요청이면 Content-Type/Accept를 호출자가 넣지 않은 경우에만 기본값 세팅
+    if (!headers.has('Accept')) headers.set('Accept', 'application/json');
+  };
+
+  attachAuth(getAccessTokenSync());
+
+  let res = await fetch(url, { ...init, headers });
+
+  // 401 처리: refresh 토큰이 있으면 1회 재시도
+  if (res.status === 401 && hasRefreshToken()) {
+    const newAccess = await refreshAccessOnce();
+    if (newAccess) {
+      attachAuth(newAccess);
+      res = await fetch(url, { ...init, headers });
+    }
+  }
+
+  return res;
+}
+
+/** JSON 바로 받고 싶은 경우 */
+export async function authJson<T = any>(
+  url: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const res = await auth(url, init);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status} ${text}`);
+  }
+  return (await res.json()) as T;
+}

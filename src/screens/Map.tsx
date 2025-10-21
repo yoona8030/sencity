@@ -17,9 +17,10 @@ import {
   Pressable,
   Linking, // ✅ 오타 수정: Liking → Linking
 } from 'react-native';
-import { fetchReportPoints } from '../api/report'; // ✅ 내 신고 API
+import { fetchAllReportPoints } from '../api/report'; // ✅ 내 신고 API
 import { WebView } from 'react-native-webview';
 import { KAKAO_JS_KEY, KAKAO_REST_API_KEY } from '@env';
+import { useReportPoints } from '../hooks/useReportPoints';
 
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import Animated, {
@@ -109,6 +110,17 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
       };
       window.map = new kakao.maps.Map(mapContainer, mapOption);
 
+      // ===== 전역 상태 =====
+      window._reportOverlays = {};
+      window._reportCoords   = [];
+      window._reportsVisible = false;
+
+      // ===== 공통 유틸 =====
+      function isNum(v){ return typeof v === 'number' && isFinite(v); }
+      window.safeRelayout = function(){
+        try { if (window.map && typeof window.map.relayout === 'function') window.map.relayout(); } catch(e) {}
+      };
+
       function circleSvgDataURL(d, ring, ringColor, fillColor) {
         var r = d / 2;
         var svg =
@@ -123,7 +135,7 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         return new kakao.maps.MarkerImage(src, size, { offset: new kakao.maps.Point(d/2, d/2) });
       }
 
-      // ====== 기존 저장 장소(그대로 둠) ======
+      // ====== 저장 장소 ======
       window._savedMarkers = {};
       window._tempMarkers = {};
       window._savedVisible = true;
@@ -137,6 +149,7 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
 
       window.setMyLocation = function(lat, lng, accuracy) {
         try {
+          if (!isNum(lat) || !isNum(lng)) return false;
           var pos = new kakao.maps.LatLng(lat, lng);
           if (!window._meMarker) {
             var img = makeBlueMarkerImage(22);
@@ -150,10 +163,8 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
             window._meMarker.setPosition(pos);
             window._meMarker.setMap(window.map);
           }
-          if (typeof accuracy === 'number' && accuracy > 0) {
-            if (window._meAccuracyCircle) {
-              window._meAccuracyCircle.setMap(null);
-            }
+          if (isNum(accuracy) && accuracy > 0) {
+            if (window._meAccuracyCircle) window._meAccuracyCircle.setMap(null);
             window._meAccuracyCircle = new kakao.maps.Circle({
               center: pos,
               radius: Math.min(accuracy, 300),
@@ -162,6 +173,7 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
             });
             window._meAccuracyCircle.setMap(window.map);
           }
+          window.safeRelayout();
           window.map.panTo(pos);
           return true;
         } catch(e) { return false; }
@@ -169,13 +181,12 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
 
       window.setSavedMarkers = function (places) {
         try { if (typeof places === 'string') places = JSON.parse(places); } catch (e) {}
-        for (var id in window._savedMarkers) {
-          var mk = window._savedMarkers[id];
-          if (mk) mk.setMap(null);
-        }
+        for (var id in window._savedMarkers) { var mk = window._savedMarkers[id]; if (mk) mk.setMap(null); }
         window._savedMarkers = {};
         (places || []).forEach(function (p) {
-          var pos = new kakao.maps.LatLng(p.lat, p.lng);
+          var lat = Number(p.lat), lng = Number(p.lng);
+          if (!isNum(lat) || !isNum(lng)) return;
+          var pos = new kakao.maps.LatLng(lat, lng);
           var img = makeCircleMarkerImage(18, 5, '#FEBA15', '#ffffff');
           var marker = new kakao.maps.Marker({ position: pos, map: window._savedVisible ? window.map : null, image: img });
           window._savedMarkers[p.id] = marker;
@@ -183,15 +194,14 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
       };
       window.setSavedMarkersVisible = function (visible) {
         window._savedVisible = !!visible;
-        for (var id in window._savedMarkers) {
-          var mk = window._savedMarkers[id];
-          mk.setMap(window._savedVisible ? window.map : null);
-        }
+        for (var id in window._savedMarkers) { var mk = window._savedMarkers[id]; if (mk) mk.setMap(window._savedVisible ? window.map : null); }
       };
       window.addSavedMarker = function (place) {
         try { if (typeof place === 'string') place = JSON.parse(place); } catch (e) {}
         if (!place) return;
-        var pos = new kakao.maps.LatLng(place.lat, place.lng);
+        var lat = Number(place.lat), lng = Number(place.lng);
+        if (!isNum(lat) || !isNum(lng)) return;
+        var pos = new kakao.maps.LatLng(lat, lng);
         var img = makeCircleMarkerImage(18, 5, '#FEBA15', '#ffffff');
         var marker = new kakao.maps.Marker({ position: pos, map: window._savedVisible ? window.map : null, image: img });
         window._savedMarkers[place.id] = marker;
@@ -199,13 +209,39 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
       window.focusMarker = function (id) {
         var m = window._savedMarkers[id] || window._tempMarkers[id];
         if (!m) return false;
+        window.safeRelayout();
         window.map.panTo(m.getPosition());
         return true;
       };
 
-      // ====== ✅ 신규: "내 신고" 비콘 오버레이 ======
-      window._reportOverlays = {};     // id -> CustomOverlay
-      window._reportsVisible = false;  // 기본 비표시
+      // ===== 신고 비콘 영역 =====
+
+      // 완전 제거 (오버레이/DOM/상태)
+      window.clearReports = function () {
+        try {
+          if (window._reportOverlays) {
+            Object.values(window._reportOverlays).forEach(function(ov){
+              try {
+                if (ov && ov.setMap) ov.setMap(null);
+                var content = ov.getContent && ov.getContent();
+                if (content && content.parentNode) content.parentNode.removeChild(content);
+              } catch (e) {}
+            });
+          }
+          // 혹시 남은 비콘 DOM 강제 제거
+          var beacons = document.querySelectorAll('.beacon-wrap');
+          beacons.forEach(function(el){ try { el.remove(); } catch (e) {} });
+
+          window._reportOverlays = {};
+          window._reportCoords = [];
+          window._reportsVisible = false;
+
+          return true;
+        } catch (e) {
+          console.log('[clearReports err]', e);
+          return false;
+        }
+      };
 
       function makeBeaconDom() {
         var wrap = document.createElement('div');
@@ -219,39 +255,53 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         return wrap;
       }
 
+      // 항상 초기화 후 다시 그림
       window.setReports = function(reports) {
-        try { if (typeof reports === 'string') reports = JSON.parse(reports); } catch (e) {}
-        // 기존 제거
-        for (var id in window._reportOverlays) {
-          window._reportOverlays[id].setMap(null);
-        }
-        window._reportOverlays = {};
-        (reports || []).forEach(function(r) {
-          var pos = new kakao.maps.LatLng(r.lat, r.lng);
-          var dom = makeBeaconDom();
-          var ov = new kakao.maps.CustomOverlay({
-            position: pos,
-            content: dom,
-            yAnchor: 0.5,
-            xAnchor: 0.5,
-            zIndex: 8000
+        try {
+          if (typeof reports === 'string') { try { reports = JSON.parse(reports); } catch (e) { reports = []; } }
+
+          // 먼저 완전 초기화
+          if (window.clearReports) window.clearReports();
+
+          (reports || []).forEach(function(r) {
+            var lat = Number(r.lat), lng = Number(r.lng);
+            if (!isNum(lat) || !isNum(lng)) return;
+
+            var pos = new kakao.maps.LatLng(lat, lng);
+            window._reportCoords.push({ lat: lat, lng: lng });
+
+            var dom = makeBeaconDom();
+            var ov = new kakao.maps.CustomOverlay({
+              position: pos,
+              content: dom,
+              yAnchor: 0.5,
+              xAnchor: 0.5,
+              zIndex: 8000
+            });
+            if (window._reportsVisible) ov.setMap(window.map);
+            window._reportOverlays[r.id] = ov;
           });
-          if (window._reportsVisible) ov.setMap(window.map);
-          window._reportOverlays[r.id] = ov;
-        });
+        } catch (e) {
+          console.log('[setReports err]', e);
+        }
       };
 
       window.setReportsVisible = function(visible) {
         window._reportsVisible = !!visible;
         for (var id in window._reportOverlays) {
-          window._reportOverlays[id].setMap(window._reportsVisible ? window.map : null);
+          var ov = window._reportOverlays[id];
+          if (ov) ov.setMap(window._reportsVisible ? window.map : null);
         }
       };
 
       window.addReport = function(report) {
         try { if (typeof report === 'string') report = JSON.parse(report); } catch (e) {}
         if (!report) return;
-        var pos = new kakao.maps.LatLng(report.lat, report.lng);
+        var lat = Number(report.lat), lng = Number(report.lng);
+        if (!isNum(lat) || !isNum(lng)) return;
+
+        var pos = new kakao.maps.LatLng(lat, lng);
+        window._reportCoords.push({ lat: lat, lng: lng });
         var dom = makeBeaconDom();
         var ov = new kakao.maps.CustomOverlay({
           position: pos,
@@ -262,6 +312,48 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         });
         if (window._reportsVisible) ov.setMap(window.map);
         window._reportOverlays[report.id] = ov;
+      };
+
+      // 신고 지점 경계로 카메라 맞추기
+      window.focusReports = function () {
+        try {
+          if (!window.map) return false;
+          window.safeRelayout();
+
+          var ids = Object.keys(window._reportOverlays || {}).filter(function(id){
+            return !!window._reportOverlays[id] && !!window._reportOverlays[id].getPosition;
+          });
+          if (ids.length === 0) return false;
+
+          if (ids.length === 1) {
+            var ov = window._reportOverlays[ids[0]];
+            var pos = ov && ov.getPosition && ov.getPosition();
+            if (!pos) return false;
+            window.map.panTo(pos);
+            var lv = window.map.getLevel();
+            if (lv > 8) window.map.setLevel(8);
+            return true;
+          }
+
+          var bounds = new kakao.maps.LatLngBounds();
+          var valid = false;
+          ids.forEach(function(id){
+            var ov = window._reportOverlays[id];
+            if (!ov || !ov.getPosition) return;
+            var p = ov.getPosition();
+            if (p) { bounds.extend(p); valid = true; }
+          });
+          if (!valid) return false;
+
+          window.map.setBounds(bounds, 40, 40, 40, 40);
+          var lv2 = window.map.getLevel();
+          if (lv2 > 8) window.map.setLevel(8);
+
+          return true;
+        } catch (e) {
+          console.log('focusReports err', e);
+          return false;
+        }
       };
     });
   </script>
@@ -317,9 +409,11 @@ async function refreshAccessToken() {
 
 export default function Map() {
   const [Reports, setReports] = useState<any[] | null>(null);
+  const hasFocusedOnceRef = useRef(false);
   const [reportsVisible, setReportsVisible] = useState(false);
   const bottomSheetRef = useRef<BottomSheet>(null);
   const COMPACT_HEIGHT = 130;
+  const LOGO = require('../../assets/images/logo2.png');
   const snapPoints = useMemo(() => ['35%', '50%', '80%'], []);
   const SAVED_PLACES_KEY = '@savedPlaces.v1';
 
@@ -358,7 +452,8 @@ export default function Map() {
   useEffect(() => {
     async function loadReports() {
       try {
-        const list = await fetchReportPoints();
+        const list = await fetchAllReportPoints();
+        console.log('[REPORT] fetched count:', Array.isArray(list) ? list.length : 'N/A');
         setReports(list);
 
         const payload = JSON.stringify(list);
@@ -366,13 +461,12 @@ export default function Map() {
           (function(){
             try {
               if (window.setReports) window.setReports(${payload});
-              // 표시 ON은 누락! (버튼으로만 조절)
+              if (window.setReportsVisible) window.setReportsVisible(false);
             } catch(e){ console.log('report inject err', e); }
             true;
           })();
         `;
         mapRef.current?.injectJavaScript(js);
-        // ❌ 삭제: setReportsVisible(true)
       } catch (e) {
         console.warn('신고 포인트 로드 실패', e);
       }
@@ -462,6 +556,20 @@ export default function Map() {
     `;
     mapRef.current.injectJavaScript(js);
   }
+
+  // 동일 id(또는 좌표 동일) 중복 제거
+  const uniqueReports = React.useCallback((list: any[] | null) => {
+    const out: any[] = [];
+    const seen = new Set<string>();
+    for (const r of list || []) {
+      const id = String(r?.id ?? `${r?.lat},${r?.lng}`);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(r);
+    }
+    return out;
+  }, []);
+
 
   function safeNameFromServerRow(r: any): string {
     // 서버에 어떤 키가 오는지에 맞춰 후보를 여러 개 확인
@@ -1073,9 +1181,22 @@ export default function Map() {
                 }
               : null)}
             onLoadEnd={() => {
+              mapRef.current?.injectJavaScript(`
+                try {
+                  // 초기화 시 기존 신고 마커 완전 제거 + 표시 끔
+                  if (window.setReportsVisible) window.setReportsVisible(false);
+                  if (window.clearReports) window.clearReports();
+                } catch(e) { console.log('init clearReports err', e); }
+                true;
+              `);
+
+              // 저장 장소 마커 재동기화
               syncSavedMarkers(savedPlaces);
-              // 신고 비톤 상태
-              syncReportsOnWebview(Reports, reportsVisible);
+
+              // 신고 데이터가 이미 존재할 경우만 WebView로 재주입
+              if (Reports && Reports.length > 0) {
+                syncReportsOnWebview(Reports, reportsVisible);
+              }
             }}
             onError={({ nativeEvent }) => {
               console.warn('WebView error: ', nativeEvent);
@@ -1276,31 +1397,53 @@ export default function Map() {
         {/* FAB 그룹 */}
         <View style={styles.fabGroup}>
           <TouchableOpacity
-            style={[styles.fabButton]}
+            style={styles.fabButton}
             onPress={() => {
-              // WebView 쪽에서 현재 표시 여부를 직접 판단하도록 로직 구성
+              if (!Reports || Reports.length === 0) {
+                Alert.alert('신고 데이터가 아직 로드되지 않았습니다.');
+                return;
+              }
+
+              const next = !reportsVisible;
+              setReportsVisible(next);
+
+              const safe = Reports; // 혹은 uniqueReports(Reports)
+              const payload = JSON.stringify(safe);
+
+              // ✅ JS 주입: clear 후 setReports 사이에 딜레이 추가
               const js = `
-                (function() {
+                (function(){
+                  if (window.__reportToggleBusy) return true;
+                  window.__reportToggleBusy = true;
                   try {
-                    if (window._reportsVisible) {
-                      window.setReportsVisible(false);
-                      window._reportsVisible = false;
+                    if (${next}) {
+                      // 켜기: 이전 오버레이 완전 제거 → 약간의 텀 후 생성
+                      if (window.clearReports) window.clearReports();
+                      setTimeout(function(){
+                        if (window.setReports) window.setReports(${payload});
+                        if (window.setReportsVisible) window.setReportsVisible(true);
+                        ${!hasFocusedOnceRef.current ? 'if (window.focusReports) window.focusReports();' : ''}
+                      }, 250);
                     } else {
-                      window.setReportsVisible(true);
-                      window._reportsVisible = true;
+                      // 끄기: 바로 숨기고 제거만
+                      if (window.clearReports) window.clearReports();
+                      if (window.setReportsVisible) window.setReportsVisible(false);
                     }
-                  } catch(e) { console.log(e); }
+                  } catch(e){
+                    console.log('report toggle err', e);
+                  }
+                  window.__reportToggleBusy = false;
                   true;
                 })();
               `;
               mapRef.current?.injectJavaScript(js);
+
+              if (next && !hasFocusedOnceRef.current) {
+                hasFocusedOnceRef.current = true;
+              }
             }}
           >
-            <Image
-              source={require('../../assets/images/logo2.png')}
-              style={{ width: 41, height: 37, borderRadius: 14 }}
-              resizeMode="cover"
-            />
+            <Image source={LOGO} style={styles.fabLogo} resizeMode="contain" />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -1638,6 +1781,15 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
+  },
+  fabButtonActive: {
+  borderWidth: 2,        // ✅ 켜짐 표시(선택)
+  borderColor: '#DD0000',
+  },
+  fabLogo: {
+    width: 41,
+    height: 37,
+    borderRadius: 8,
   },
   switchContainer: {
     flexDirection: 'row',

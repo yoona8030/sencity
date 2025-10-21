@@ -1,6 +1,6 @@
 // src/api/analytics.ts
-import { authFetch } from '../utils/auth'; // ✅ 경로 확인!
-import { REPORT_POINTS_URL } from '../constants'; // ✅ 누락되었던 import 추가
+import { auth } from '../utils/auth';
+import { REPORT_POINTS_URL } from '../constants';
 
 export type ReportPointRow = {
   lat: number;
@@ -18,7 +18,7 @@ export async function fetchReportPoints(
 
   const url = `${REPORT_POINTS_URL}?${qs.toString()}`;
 
-  const res = await authFetch(url, { method: 'GET' });
+  const res = await auth(url, { method: 'GET' });
   if (!res.ok) throw new Error(String(res.status));
 
   const rows = (await res.json()) as ReportPointRow[] | any;
