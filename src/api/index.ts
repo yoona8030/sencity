@@ -4,11 +4,11 @@ import { KAKAO_REST_API_KEY, API_BASE_URL } from '@env';
 // ---------- 타입 ----------
 export type RecognizeTop = {
   label: string; // 표준 영문 (예: "Goat" | "Squirrel" | "Heron/Egret" | ...)
-  label_ko?: string; // 그룹 한글 병기 (예: "고라니/노루" | "다람쥐/청설모" | "왜가리/중대백로")
+  label_ko?: string; // 그룹 한글 병기
   prob?: number; // 0~1
-  group?: string; // 내부 그룹 키 (예: "deer" | "sciuridae" | "heron_egret")
-  members?: [string, number][]; // 원라벨별 분포 (예: [["goat",0.72],["roe deer",0.15], ...])
-  animal_id?: number; // (서버에서 제공 시)
+  group?: string; // 내부 그룹 키
+  members?: [string, number][]; // 원라벨 분포
+  animal_id?: number; // 서버가 제공 시
 };
 
 // ---------- 1) 신고(무인증) ----------
@@ -16,11 +16,10 @@ export type ReportPayload = {
   animalId: number;
   locationId: number;
   status: 'checking' | 'accepted' | 'rejected';
-  photoUri: string; // 'file://...' 포함
+  photoUri: string; // 'file://...'
 };
 
-// (주의) 프로젝트 기존 postMultipart 유틸을 사용하던 버전이 있다면 아래를 유지/교체하세요.
-// 여기서는 fetch를 직접 쓰지 않고, 기존 코드 맥락을 유지하기 위해 postMultipart를 그대로 씁니다.
+// (주의) 기존 프로젝트의 postMultipart 유틸을 사용
 import { postMultipart } from './client';
 
 export async function postReportNoAuth_IdFields(p: ReportPayload) {
@@ -42,11 +41,10 @@ export async function postReportNoAuth_IdFields(p: ReportPayload) {
 
 // ---------- 2) AI 인식 (그룹 버전) ----------
 export async function recognizeAnimal(photoUri: string): Promise<RecognizeTop> {
-  const base = (API_BASE_URL || '').replace(/\/+$/, ''); // 예: http://192.168.45.122:8000/api
-  const url = `${base}/ml/recognize/`; // ← 백엔드 그룹 뷰와 일치해야 함
+  const base = (API_BASE_URL || '').replace(/\/+$/, ''); // 예: http://127.0.0.1:8000/api 또는 사내 IP
+  const url = `${base}/ml/recognize/`;
 
   const form = new FormData();
-  // ★ 백엔드가 'photo' 키를 받도록 구현되어 있음
   form.append('photo', {
     uri: photoUri,
     name: 'photo.jpg',
@@ -56,7 +54,7 @@ export async function recognizeAnimal(photoUri: string): Promise<RecognizeTop> {
   const res = await fetch(url, {
     method: 'POST',
     body: form,
-    headers: { Accept: 'application/json' }, // Content-Type 자동 설정(Multipart)
+    headers: { Accept: 'application/json' }, // Multipart는 Content-Type 자동
   });
 
   if (!res.ok) {
@@ -64,9 +62,7 @@ export async function recognizeAnimal(photoUri: string): Promise<RecognizeTop> {
     throw new Error(msg || `HTTP ${res.status}`);
   }
 
-  // 기대 응답: { label, label_ko?, prob?, group?, members? }
   const json = (await res.json()) ?? {};
-  // 하위 호환: label 누락 시 안전 폴백
   return {
     label: json.label ?? '-',
     label_ko: json.label_ko,
@@ -77,20 +73,149 @@ export async function recognizeAnimal(photoUri: string): Promise<RecognizeTop> {
   };
 }
 
-// ---------- 3) 카카오 역지오코딩 (좌표 → 주소) ----------
+// ---------- 3) 카카오 역지오코딩 (좌표 → 주소, 안전 폴백/타임아웃/재시도 포함) ----------
+
+/** 내부: AbortSignal 두 개를 병합 */
+function linkSignals(
+  a?: AbortSignal | null,
+  b?: AbortSignal | null,
+): AbortSignal | undefined {
+  if (!a && !b) return undefined;
+  if (a?.aborted) return a as AbortSignal;
+  if (b?.aborted) return b as AbortSignal;
+
+  const ctrl = new AbortController();
+  const onAbort = () => ctrl.abort();
+
+  a?.addEventListener('abort', onAbort, { once: true });
+  b?.addEventListener('abort', onAbort, { once: true });
+
+  return ctrl.signal;
+}
+/** 내부: fetch with timeout (nullable signal 지원) */
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit & { timeoutMs?: number } = {},
+) {
+  const { timeoutMs = 5000, signal, ...rest } = init;
+
+  const local = new AbortController();
+  // ✅ 외부에서 넘어온 signal이 null/undefined일 수 있으므로 안전 병합
+  const merged: AbortSignal | undefined = linkSignals(
+    signal ?? undefined,
+    local.signal,
+  );
+
+  const to = setTimeout(() => local.abort(), timeoutMs);
+  try {
+    const res = await fetch(input, { ...rest, signal: merged });
+    return res;
+  } finally {
+    clearTimeout(to);
+  }
+}
+
+/**
+ * 좌표 → 주소 문자열.
+ * - 1차: coord2address (도로명/지번)
+ * - 2차: coord2regioncode (행정동/법정동)
+ * - 실패 시: 예외를 던지지 않고 "좌표 문자열"을 최종 반환 (호출부 UI가 튼튼해짐)
+ * - Kakao 규칙: x=경도(lng), y=위도(lat)
+ * - 기본 타임아웃 5초, 2회 재시도
+ */
 export async function reverseGeocodeKakao(
   lat: number,
   lng: number,
+  opts?: { timeoutMs?: number; retries?: number; signal?: AbortSignal },
 ): Promise<string> {
-  const url = `https://dapi.kakao.com/v2/local/geo/coord2address.json?x=${lng}&y=${lat}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `KakaoAK ${KAKAO_REST_API_KEY}` },
-  });
-  if (!res.ok) throw new Error(`Kakao ${res.status}`);
+  // 입력 검증
+  const latNum = Number(lat);
+  const lngNum = Number(lng);
+  if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
+    return '위치 정보 없음';
+  }
 
-  const j = await res.json();
-  const doc = j?.documents?.[0];
-  const road = doc?.road_address?.address_name;
-  const lot = doc?.address?.address_name;
-  return road || lot || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  // 키 검증
+  const KEY = (KAKAO_REST_API_KEY || '').trim();
+  if (!KEY) {
+    console.warn('[reverseGeocodeKakao] KAKAO_REST_API_KEY 누락');
+    return `${latNum.toFixed(5)}, ${lngNum.toFixed(5)}`;
+  }
+
+  const timeoutMs = Math.max(3000, opts?.timeoutMs ?? 5000);
+  const retries = Math.max(0, Math.min(2, opts?.retries ?? 1)); // 기본 1회 재시도
+
+  const tryOnce = async (): Promise<string | null> => {
+    try {
+      // 1) 도로명/지번 주소
+      const url1 =
+        `https://dapi.kakao.com/v2/local/geo/coord2address.json` +
+        `?x=${encodeURIComponent(lngNum)}&y=${encodeURIComponent(latNum)}`;
+
+      const r1 = await fetchWithTimeout(url1, {
+        method: 'GET',
+        headers: { Authorization: `KakaoAK ${KEY}` },
+        timeoutMs,
+        signal: opts?.signal,
+      });
+
+      if (r1.ok) {
+        const j1 = await r1.json().catch(() => ({} as any));
+        const doc = j1?.documents?.[0];
+        const road = doc?.road_address?.address_name;
+        const lot = doc?.address?.address_name;
+        if (typeof road === 'string' && road.trim()) return road.trim();
+        if (typeof lot === 'string' && lot.trim()) return lot.trim();
+      } else {
+        const raw = await r1.text().catch(() => '');
+        console.warn('[coord2address fail]', r1.status, raw);
+      }
+
+      // 2) 행정구역명 대체
+      const url2 =
+        `https://dapi.kakao.com/v2/local/geo/coord2regioncode.json` +
+        `?x=${encodeURIComponent(lngNum)}&y=${encodeURIComponent(latNum)}`;
+
+      const r2 = await fetchWithTimeout(url2, {
+        method: 'GET',
+        headers: { Authorization: `KakaoAK ${KEY}` },
+        timeoutMs,
+        signal: opts?.signal,
+      });
+
+      if (r2.ok) {
+        const j2 = await r2.json().catch(() => ({} as any));
+        const d = j2?.documents?.[0];
+        const parts = [
+          d?.region_1depth_name,
+          d?.region_2depth_name,
+          d?.region_3depth_name,
+        ]
+          .map((s: unknown) => (typeof s === 'string' ? s.trim() : ''))
+          .filter(Boolean);
+        if (parts.length) return parts.join(' ');
+      } else {
+        const raw2 = await r2.text().catch(() => '');
+        console.warn('[coord2regioncode fail]', r2.status, raw2);
+      }
+
+      return null;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
+        console.warn('[reverseGeocodeKakao] timeout/aborted');
+      } else {
+        console.warn('[reverseGeocodeKakao] error', e);
+      }
+      return null;
+    }
+  };
+
+  // 재시도 루프
+  for (let i = 0; i <= retries; i++) {
+    const out = await tryOnce();
+    if (out) return out;
+  }
+
+  // 최종 폴백: 좌표 문자열
+  return `${latNum.toFixed(5)}, ${lngNum.toFixed(5)}`;
 }

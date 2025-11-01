@@ -1,9 +1,6 @@
 // src/screens/Home.tsx
 import React, { useEffect, useState, useMemo } from 'react';
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   View,
   Text,
@@ -39,8 +36,8 @@ type Summary = {
 export default function Home() {
   const insets = useSafeAreaInsets();
 
-  // ✅ 상단을 "더 내리고" 싶다면: EXTRA_TOP을 더한다
-  const EXTRA_TOP = 0; // ← 취향에 따라 12~24
+  // 상단 여백
+  const EXTRA_TOP = 0;
   const topPadding = insets.top + EXTRA_TOP;
 
   const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
@@ -52,15 +49,13 @@ export default function Home() {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-  const dateString = `${now.getFullYear()}년 ${String(
-    now.getMonth() + 1,
-  ).padStart(2, '0')}월 ${String(now.getDate()).padStart(2, '0')}일`;
+  const dateString = `${now.getFullYear()}년 ${String(now.getMonth() + 1).padStart(2, '0')}월 ${String(
+    now.getDate(),
+  ).padStart(2, '0')}일`;
   const hour = now.getHours();
   const meridiem = hour < 12 ? '오전' : '오후';
   const hour12 = hour % 12 === 0 ? 12 : hour % 12;
-  const timeString = `${meridiem} ${String(hour12).padStart(2, '0')}시 ${String(
-    now.getMinutes(),
-  ).padStart(2, '0')}분`;
+  const timeString = `${meridiem} ${String(hour12).padStart(2, '0')}시 ${String(now.getMinutes()).padStart(2, '0')}분`;
 
   // 요약 데이터
   const [loading, setLoading] = useState(true);
@@ -78,9 +73,7 @@ export default function Home() {
 
   const fetchSummary = async () => {
     try {
-      const data = await getJSON<Summary>(
-        '/reports/summary/?scope=global&period=all',
-      );
+      const data = await getJSON<Summary>('/reports/summary/?scope=global&period=all');
       setSummary(data);
     } catch (e) {
       await handleApiError(e, notify, navigation);
@@ -110,7 +103,7 @@ export default function Home() {
       id: '2',
       title: '고라니 도심 출몰, 시민 불안 고조',
       image: require('../../assets/images/news2.png'),
-      url: 'https://www.chosun.com/…/',
+      url: 'https://www.chosun.com/',
     },
   ];
   const { width } = Dimensions.get('window');
@@ -125,42 +118,70 @@ export default function Home() {
     setActiveIndex(idx);
   };
 
-  const goReportStats = () =>
-    navigation.navigate('Report', { focus: 'stats', _t: Date.now() });
-  const goReportHistory = () =>
-    navigation.navigate('Report', { focus: 'history', _t: Date.now() });
+  const goReportStats = () => navigation.navigate('Report', { focus: 'stats', _t: Date.now() });
+  const goReportHistory = () => navigation.navigate('Report', { focus: 'history', _t: Date.now() });
 
+  // ✅ 홈의 WebView에서도 autoload=false + kakao.maps.load 사용
   const kakaoMapHtml = useMemo(() => {
     const key = KAKAO_JS_KEY || '';
     return `
-    <!DOCTYPE html><html><head>
-      <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0"/>
-      ${
-        key
-          ? `<script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}"></script>`
-          : ''
-      }
-      <style>html,body,#map{margin:0;padding:0;height:100%;}</style>
-    </head><body>
-      <div id="map"></div>
-      <script>
-        ${
-          key
-            ? `
-          const map = new kakao.maps.Map(
-            document.getElementById('map'),
-            { center: new kakao.maps.LatLng(37.54217,126.9368), level: 4 }
-          );
-          new kakao.maps.Marker({ position: map.getCenter(), map });
-        `
-            : `
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="initial-scale=1.0, maximum-scale=1.0, width=device-width, height=device-height, user-scalable=no"
+  />
+  <style>
+    html, body, #map {
+      margin:0; padding:0; height:100%; width:100%;
+      background:#f0f0f0;
+    }
+    .center-msg {
+      display:flex; height:100%; align-items:center; justify-content:center;
+      color:#666; font-family:system-ui, -apple-system, Roboto, 'Noto Sans KR', sans-serif;
+      font-size:14px; text-align:center; padding:12px;
+    }
+  </style>
+  ${
+    key
+      ? `<script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services"></script>`
+      : ''
+  }
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    (function(){
+      try {
+        var hasKey = ${JSON.stringify(!!key)};
+        if (!hasKey) {
           document.getElementById('map').innerHTML =
-            '<div style="display:flex;height:100%;align-items:center;justify-content:center;color:#888">KAKAO_JS_KEY 누락</div>';
-        `
+            "<div class='center-msg'>KAKAO_JS_KEY가 설정되어 있지 않습니다 (.env 확인 후 다시 빌드)</div>";
+          return;
         }
-      </script>
-    </body></html>
-  `;
+        // SDK 로드가 끝난 뒤 초기화
+        kakao.maps.load(function(){
+          try {
+            var el = document.getElementById('map');
+            var center = new kakao.maps.LatLng(37.54217, 126.9368); // 기본 중심
+            var map = new kakao.maps.Map(el, { center: center, level: 4 });
+            new kakao.maps.Marker({ position: center, map: map });
+          } catch (e) {
+            document.getElementById('map').innerHTML =
+              "<div class='center-msg'>지도를 초기화하는 중 오류가 발생했습니다.<br/>" + (e && e.message ? e.message : e) + "</div>";
+          }
+        });
+      } catch (e) {
+        document.getElementById('map').innerHTML =
+          "<div class='center-msg'>지도 스크립트 오류<br/>" + (e && e.message ? e.message : e) + "</div>";
+      }
+    })();
+  </script>
+</body>
+</html>
+    `;
   }, [KAKAO_JS_KEY]);
 
   const StatCard = ({
@@ -184,35 +205,21 @@ export default function Home() {
       hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
     >
       <Text style={styles.statTitle}>{title}</Text>
-      {loading ? (
-        <ActivityIndicator size="small" style={{ marginTop: 6 }} />
-      ) : (
-        <Text style={styles.statValue}>{value}</Text>
-      )}
+      {loading ? <ActivityIndicator size="small" style={{ marginTop: 6 }} /> : <Text style={styles.statValue}>{value}</Text>}
     </TouchableOpacity>
   );
 
   return (
     <>
-      <StatusBar
-        translucent
-        backgroundColor="transparent"
-        barStyle="dark-content"
-      />
+      <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
       <SafeAreaView
         edges={['left', 'right', 'bottom']}
-        style={[
-          styles.safeArea,
-          { paddingTop: topPadding, paddingBottom: insets.bottom },
-        ]}
+        style={[styles.safeArea, { paddingTop: topPadding, paddingBottom: insets.bottom }]}
       >
         <View style={styles.container}>
-          {/* 그룹 2 헤더 */}
+          {/* 헤더 */}
           <View style={styles.header}>
-            <Image
-              source={require('../../assets/images/logo.png')}
-              style={styles.logo}
-            />
+            <Image source={require('../../assets/images/logo.png')} style={styles.logo} />
             <View style={styles.headerText}>
               <Text style={styles.appName}>SENCITY</Text>
               <View style={{ gap: 2 }}>
@@ -224,24 +231,9 @@ export default function Home() {
 
           {/* 통계 카드 */}
           <View style={styles.statsRow}>
-            <StatCard
-              title="총 신고 수"
-              value={`${total}건`}
-              onPress={goReportStats}
-              loading={loading}
-            />
-            <StatCard
-              title="가장 많이 신고한 동물"
-              value={topAnimal}
-              onPress={goReportStats}
-              loading={loading}
-            />
-            <StatCard
-              title="마지막 신고일"
-              value={lastDate}
-              onPress={goReportHistory}
-              loading={loading}
-            />
+            <StatCard title="총 신고 수" value={`${total}건`} onPress={goReportStats} loading={loading} />
+            <StatCard title="가장 많이 신고한 동물" value={topAnimal} onPress={goReportStats} loading={loading} />
+            <StatCard title="마지막 신고일" value={lastDate} onPress={goReportHistory} loading={loading} />
           </View>
 
           {/* 뉴스 캐러셀 */}
@@ -258,10 +250,7 @@ export default function Home() {
             style={{ marginBottom: 0 }}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={[
-                  styles.newsCard,
-                  { width: CARD_WIDTH, height: CARD_HEIGHT, marginRight: 16 },
-                ]}
+                style={[styles.newsCard, { width: CARD_WIDTH, height: CARD_HEIGHT, marginRight: 16 }]}
                 onPress={() => Linking.openURL(item.url)}
                 activeOpacity={0.8}
               >
@@ -277,13 +266,7 @@ export default function Home() {
           {/* Pagination Dots */}
           <View style={styles.dotsAbsolute}>
             {newsList.map((_, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.dot,
-                  i === activeIndex ? styles.activeDot : styles.inactiveDot,
-                ]}
-              />
+              <View key={i} style={[styles.dot, i === activeIndex ? styles.activeDot : styles.inactiveDot]} />
             ))}
           </View>
 
@@ -296,12 +279,13 @@ export default function Home() {
               javaScriptEnabled
               domStorageEnabled
               mixedContentMode="always"
+              cacheEnabled={false}
+              onError={({ nativeEvent }) => {
+                console.warn('[Home WebView error]', nativeEvent);
+              }}
             />
-            <TouchableOpacity
-              style={StyleSheet.absoluteFill}
-              activeOpacity={0.8}
-              onPress={() => navigation.navigate('Map')}
-            />
+            {/* 홈에서 지도를 터치하면 상세 Map 화면으로 이동 */}
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={0.8} onPress={() => navigation.navigate('Map')} />
           </View>
         </View>
       </SafeAreaView>
@@ -318,22 +302,21 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
 
-  // ── 그룹 2 헤더 (여유 있게)
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 14, // ⬅ 8 → 14 로 늘림 (내부 여백 증가)
-    marginBottom: 12, // ⬅ 헤더와 콘텐츠 간 간격도 살짝 늘림
+    paddingVertical: 14,
+    marginBottom: 12,
   },
   logo: {
-    width: 92, // 필요 시 더 키워도 OK
+    width: 92,
     height: 82,
     resizeMode: 'contain',
   },
-  headerText: { marginLeft: 14 }, // ⬅ 로고와 텍스트 간격 +2
-  appName: { fontSize: 20, fontWeight: 'bold', color: '#000' }, // 그룹2 타이틀 20
-  date: { fontSize: 14, color: '#000' }, // 그룹2 서브 14
+  headerText: { marginLeft: 14 },
+  appName: { fontSize: 20, fontWeight: 'bold', color: '#000' },
+  date: { fontSize: 14, color: '#000' },
   time: { fontSize: 14, color: '#000' },
 
   statsRow: {
@@ -408,6 +391,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginTop: 0,
     marginBottom: 5,
+    backgroundColor: '#eaeaea',
   },
   webview: { ...StyleSheet.absoluteFillObject },
 });

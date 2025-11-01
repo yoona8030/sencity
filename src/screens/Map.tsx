@@ -15,29 +15,20 @@ import {
   Platform,
   Modal,
   Pressable,
-  Linking, // ✅ 오타 수정: Liking → Linking
+  Linking,
 } from 'react-native';
-import { fetchAllReportPoints } from '../api/report'; // ✅ 내 신고 API
+import { fetchAllReportPoints } from '../api/report';
 import { WebView } from 'react-native-webview';
 import { KAKAO_JS_KEY, KAKAO_REST_API_KEY } from '@env';
 import { useReportPoints } from '../hooks/useReportPoints';
 
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-} from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 import Geolocation from 'react-native-geolocation-service';
-import {
-  check,
-  request,
-  PERMISSIONS,
-  RESULTS,
-  Permission,
-} from 'react-native-permissions';
+import { check, request, PERMISSIONS, RESULTS, Permission } from 'react-native-permissions';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface SearchHistoryItem {
@@ -55,18 +46,22 @@ interface AnimalInfo {
   proxied_image_url?: string;
 }
 interface PlaceItem {
-  id: string; // 클라이언트 고유 id (client_id)
-  remoteId?: number; // 서버 PK
-  name: string; // 표시 이름 (서버 name)
-  location: string; // 주소 문자열
+  id: string;
+  remoteId?: number;
+  name: string;
+  location: string;
   lat: number;
   lng: number;
 }
 
 const windowHeight = Dimensions.get('window').height;
 const windowWidth = Dimensions.get('window').width;
-const BACKEND_URL = 'http://127.0.0.1:8000/api'; // 실제 기기+reverse 기준
 
+// ★ 실제 기기 + USB reverse 시엔 127.0.0.1 사용 가능 (adb reverse tcp:8000 tcp:8000)
+//   Wi-Fi 직결 시엔 192.168.x.x 로 교체
+const BACKEND_URL = 'http://127.0.0.1:8000/api';
+
+// =================== Kakao Map HTML ===================
 const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
 <!DOCTYPE html>
 <html>
@@ -75,7 +70,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
   <title>Kakao Map</title>
   <style>
     html, body, #map { margin:0; padding:0; width:100vw; height:100vh; }
-    /* ---- 신고 비콘(맥동) ---- */
     .beacon-wrap { position:relative; width:24px; height:24px; transform: translate(-50%, -50%); }
     .beacon-core {
       width: 14px; height: 14px; border-radius: 7px;
@@ -100,7 +94,7 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
 <body>
   <div id="map" style="width:100vw; height:100vh;"></div>
 
-  <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&autoload=false"></script>
+  <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&autoload=false&libraries=services,clusterer,drawing"></script>
   <script>
     kakao.maps.load(function() {
       var mapContainer = document.getElementById('map');
@@ -110,12 +104,10 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
       };
       window.map = new kakao.maps.Map(mapContainer, mapOption);
 
-      // ===== 전역 상태 =====
       window._reportOverlays = {};
       window._reportCoords   = [];
       window._reportsVisible = false;
 
-      // ===== 공통 유틸 =====
       function isNum(v){ return typeof v === 'number' && isFinite(v); }
       window.safeRelayout = function(){
         try { if (window.map && typeof window.map.relayout === 'function') window.map.relayout(); } catch(e) {}
@@ -135,7 +127,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         return new kakao.maps.MarkerImage(src, size, { offset: new kakao.maps.Point(d/2, d/2) });
       }
 
-      // ====== 저장 장소 ======
       window._savedMarkers = {};
       window._tempMarkers = {};
       window._savedVisible = true;
@@ -179,6 +170,10 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         } catch(e) { return false; }
       };
 
+      window._savedMarkers = {};
+      window._tempMarkers = {};
+      window._savedVisible = true;
+
       window.setSavedMarkers = function (places) {
         try { if (typeof places === 'string') places = JSON.parse(places); } catch (e) {}
         for (var id in window._savedMarkers) { var mk = window._savedMarkers[id]; if (mk) mk.setMap(null); }
@@ -214,9 +209,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         return true;
       };
 
-      // ===== 신고 비콘 영역 =====
-
-      // 완전 제거 (오버레이/DOM/상태)
       window.clearReports = function () {
         try {
           if (window._reportOverlays) {
@@ -228,7 +220,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
               } catch (e) {}
             });
           }
-          // 혹시 남은 비콘 DOM 강제 제거
           var beacons = document.querySelectorAll('.beacon-wrap');
           beacons.forEach(function(el){ try { el.remove(); } catch (e) {} });
 
@@ -255,12 +246,9 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         return wrap;
       }
 
-      // 항상 초기화 후 다시 그림
       window.setReports = function(reports) {
         try {
           if (typeof reports === 'string') { try { reports = JSON.parse(reports); } catch (e) { reports = []; } }
-
-          // 먼저 완전 초기화
           if (window.clearReports) window.clearReports();
 
           (reports || []).forEach(function(r) {
@@ -314,7 +302,6 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
         window._reportOverlays[report.id] = ov;
       };
 
-      // 신고 지점 경계로 카메라 맞추기
       window.focusReports = function () {
         try {
           if (!window.map) return false;
@@ -361,10 +348,8 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
 </html>
 `;
 
-/** ✅ 권한 상세 상태 반환 유틸 (granted/denied/blocked) */
-async function ensureLocationPermissionDetailed(): Promise<
-  'granted' | 'denied' | 'blocked'
-> {
+// =================== 권한 유틸 ===================
+async function ensureLocationPermissionDetailed(): Promise<'granted' | 'denied' | 'blocked'> {
   let permission: Permission;
 
   if (Platform.OS === 'android') {
@@ -408,6 +393,21 @@ async function refreshAccessToken() {
 }
 
 export default function Map() {
+  // ★ 키 로드 확인(마스킹) — 콘솔에서 즉시 진단
+  useEffect(() => {
+    const mask = (s?: string) => (s ? `${s.slice(0, 6)}****` : 'EMPTY');
+    console.log('[KAKAO_KEYS]', {
+      JS: mask(KAKAO_JS_KEY as any),
+      REST: mask(KAKAO_REST_API_KEY as any),
+    });
+    if (!KAKAO_REST_API_KEY) {
+      Alert.alert(
+        'Kakao REST 키 확인',
+        'KAKAO_REST_API_KEY가 비어 있습니다. .env에 REST API 키를 넣고 앱을 다시 빌드하세요.'
+      );
+    }
+  }, []);
+
   const [Reports, setReports] = useState<any[] | null>(null);
   const hasFocusedOnceRef = useRef(false);
   const [reportsVisible, setReportsVisible] = useState(false);
@@ -427,9 +427,7 @@ export default function Map() {
   const [history, setHistory] = useState<SearchHistoryItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [animalInfo, setAnimalInfo] = useState<AnimalInfo | null>(null);
-  const [animalImgUri, setAnimalImgUri] = useState<string | undefined>(
-    undefined,
-  );
+  const [animalImgUri, setAnimalImgUri] = useState<string | undefined>(undefined);
 
   const candidate =
     animalInfo?.proxied_image_url ||
@@ -479,7 +477,6 @@ export default function Map() {
   const [savedPlaces, setSavedPlaces] = useState<PlaceItem[]>([]);
   const [savedVisible, setSavedVisible] = useState(true);
 
-  /** ✅ 위치 권한 설정 이동 모달 */
   const [locationModalVisible, setLocationModalVisible] = useState(false);
 
   const syncSavedMarkers = (places: PlaceItem[]) => {
@@ -489,14 +486,9 @@ export default function Map() {
   };
 
   const [selectedPlace, setSelectedPlace] = useState<PlaceItem | null>(null);
-  const [currentLocation, setCurrentLocation] = useState<{
-    lat: number;
-    lng: number;
-  } | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [mapHtml, setMapHtml] = useState(getKakaoMapHtml());
-  const [searchResultPlace, setSearchResultPlace] = useState<PlaceItem | null>(
-    null,
-  );
+  const [searchResultPlace, setSearchResultPlace] = useState<PlaceItem | null>(null);
   const [saveModalVisible, setSaveModalVisible] = useState<boolean>(false);
 
   const authFetch = React.useCallback(
@@ -521,18 +513,14 @@ export default function Map() {
       }
       return res;
     },
-    [],
+    []
   );
 
-  // Kakao 주소 지오코딩
+  // ===== Kakao 주소 지오코딩(미사용시 제거 가능) =====
   const geocodeAddress = async (address: string) => {
     try {
-      const url = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(
-        address,
-      )}`;
-      const r = await fetch(url, {
-        headers: { Authorization: `KakaoAK ${KAKAO_REST_API_KEY}` },
-      });
+      const url = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(address)}`;
+      const r = await fetch(url, { headers: { Authorization: `KakaoAK ${KAKAO_REST_API_KEY}` } });
       const j = await r.json();
       const doc = j?.documents?.[0];
       if (!doc) return null;
@@ -541,7 +529,7 @@ export default function Map() {
       return null;
     }
   };
-  // WebView로 "신고 비콘"도 현 상태대로 재주입
+
   function syncReportsOnWebview(list: any[] | null, visible: boolean) {
     if (!mapRef.current) return;
     const payload = JSON.stringify(list || []);
@@ -554,10 +542,9 @@ export default function Map() {
         true;
       })();
     `;
-    mapRef.current.injectJavaScript(js);
+    mapRef.current?.injectJavaScript(js);
   }
 
-  // 동일 id(또는 좌표 동일) 중복 제거
   const uniqueReports = React.useCallback((list: any[] | null) => {
     const out: any[] = [];
     const seen = new Set<string>();
@@ -570,19 +557,9 @@ export default function Map() {
     return out;
   }, []);
 
-
   function safeNameFromServerRow(r: any): string {
-    // 서버에 어떤 키가 오는지에 맞춰 후보를 여러 개 확인
-    const cand =
-      r.name ?? // 있으면 가장 우선
-      r.alias ?? // 혹시 별칭 필드가 alias인 경우
-      r.title ?? // title을 주는 백엔드도 있음
-      r.address ?? // 주소 문자열
-      null;
-
+    const cand = r.name ?? r.alias ?? r.title ?? r.address ?? null;
     if (typeof cand === 'string' && cand.trim()) return cand.trim();
-
-    // 좌표 기반 대체 이름
     const lat = Number(r.latitude);
     const lng = Number(r.longitude);
     if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
@@ -593,9 +570,7 @@ export default function Map() {
 
   // ===== 서버 동기화 =====
   const fetchServerPlaces = async (): Promise<PlaceItem[]> => {
-    const res = await authFetch(`${BACKEND_URL}/saved-places/`, {
-      method: 'GET',
-    });
+    const res = await authFetch(`${BACKEND_URL}/saved-places/`, { method: 'GET' });
     if (!res.ok) throw new Error(`fetch ${res.status}`);
     const rows = await res.json();
 
@@ -647,43 +622,31 @@ export default function Map() {
     }
 
     const saved = JSON.parse(raw);
-    setSavedPlaces(prev =>
-      prev.map(p => (p.id === place.id ? { ...p, remoteId: saved.id } : p)),
-    );
+    setSavedPlaces(prev => prev.map(p => (p.id === place.id ? { ...p, remoteId: saved.id } : p)));
   };
 
   const deletePlaceRemote = async (remoteId: number) => {
-    await authFetch(`${BACKEND_URL}/saved-places/${remoteId}/`, {
-      method: 'DELETE',
-    });
+    await authFetch(`${BACKEND_URL}/saved-places/${remoteId}/`, { method: 'DELETE' });
   };
 
   const syncWithServer = async () => {
     try {
-      // 1) 업로드
       const unsynced = savedPlaces.filter(p => !p.remoteId);
       for (const p of unsynced) {
         await pushPlaceToServer(p);
       }
 
-      // 2) 서버 목록
       const serverList = await fetchServerPlaces();
 
-      // ✅ Map 대신 객체(Record)로 인덱싱
       const byId: Record<string, PlaceItem> = {};
       for (const s of serverList) {
         byId[s.id] = s;
       }
+      const allIds = [...savedPlaces.map(p => p.id), ...serverList.map(s => s.id)].filter(
+        (v, i, arr) => arr.indexOf(v) === i
+      );
 
-      // ✅ Set 없이 고유 id 배열 만들기
-      const allIds = [
-        ...savedPlaces.map(p => p.id),
-        ...serverList.map(s => s.id),
-      ].filter((v, i, arr) => arr.indexOf(v) === i);
-
-      // 3) 병합: 필드별 "유효한 값" 우선
       const merged: PlaceItem[] = [];
-
       for (const id of allIds) {
         const local = savedPlaces.find(p => p.id === id) || null;
         const remote = byId[id] || null;
@@ -692,18 +655,15 @@ export default function Map() {
           merged.push({
             id,
             remoteId: remote.remoteId ?? local.remoteId,
-            // 이름: 공백 아닌 값 우선, 없으면 파생
             name:
               (remote.name && remote.name.trim()) ||
               (local.name && local.name.trim()) ||
               derivePlaceName(local) ||
               '장소',
-            // 주소
             location:
               (remote.location && remote.location.trim()) ||
               (local.location && local.location.trim()) ||
               '',
-            // 좌표: 서버 있으면 서버, 없으면 로컬
             lat: remote.lat ?? local.lat ?? 0,
             lng: remote.lng ?? local.lng ?? 0,
           });
@@ -720,7 +680,7 @@ export default function Map() {
     }
   };
 
-  // ===== 로컬 로드 / 저장 =====
+  // ===== 로컬 로드/저장 =====
   useEffect(() => {
     (async () => {
       try {
@@ -733,13 +693,11 @@ export default function Map() {
   }, []);
 
   useEffect(() => {
-    AsyncStorage.setItem(SAVED_PLACES_KEY, JSON.stringify(savedPlaces)).catch(
-      () => {},
-    );
+    AsyncStorage.setItem(SAVED_PLACES_KEY, JSON.stringify(savedPlaces)).catch(() => {});
     syncSavedMarkers(savedPlaces);
   }, [savedPlaces]);
 
-  // ===== 토큰 로드 및 로그인 이후 동기화 =====
+  // ===== 토큰 로드 및 동기화 =====
   useEffect(() => {
     const loadToken = async () => {
       const token = await AsyncStorage.getItem('accessToken');
@@ -752,7 +710,7 @@ export default function Map() {
     if (accessToken) syncWithServer();
   }, [accessToken]);
 
-  // ===== 지도 포커싱 로직 =====
+  // ===== 지도 포커싱 =====
   useEffect(() => {
     if (selectedPlace) {
       setMapHtml(getKakaoMapHtml(selectedPlace.lat, selectedPlace.lng));
@@ -847,6 +805,7 @@ export default function Map() {
     }
   }
 
+  // =================== 검색 로직(개선) ===================
   async function handleSearch(keyword: string) {
     const raw = keyword.trim();
     if (!raw) return;
@@ -884,10 +843,7 @@ export default function Map() {
 
   function toArray(v: unknown): string[] {
     if (Array.isArray(v)) {
-      return (v as unknown[])
-        .map(String)
-        .map(s => s.replace(/^[•\-\*]\s*/, '').trim())
-        .filter(Boolean);
+      return (v as unknown[]).map(String).map(s => s.replace(/^[•\-\*]\s*/, '').trim()).filter(Boolean);
     }
     if (typeof v === 'string') {
       return v
@@ -900,14 +856,11 @@ export default function Map() {
 
   async function searchAnimal(keyword: string) {
     try {
-      const r = await fetch(
-        `${BACKEND_URL}/animal-info/?name=${encodeURIComponent(keyword)}`,
-      );
+      const r = await fetch(`${BACKEND_URL}/animal-info/?name=${encodeURIComponent(keyword)}`);
       const j = await r.json();
       if (!r.ok || !j?.name) return false;
 
-      const rawImg =
-        j.proxied_image_url || j.image_url || j.image || j.imageUrl || '';
+      const rawImg = j.proxied_image_url || j.image_url || j.image || j.imageUrl || '';
       setAnimalInfo({
         ...j,
         image_url: rawImg,
@@ -925,16 +878,13 @@ export default function Map() {
 
   async function searchAnimalLoose(q: string) {
     try {
-      const r = await fetch(
-        `${BACKEND_URL}/animals/search/?q=${encodeURIComponent(q)}`,
-      );
+      const r = await fetch(`${BACKEND_URL}/animals/search/?q=${encodeURIComponent(q)}`);
       if (!r.ok) return false;
       const list = await r.json();
       if (!Array.isArray(list) || list.length === 0) return false;
 
       const a = list[0];
-      const rawImg =
-        a.proxied_image_url || a.image_url || a.image || a.imageUrl || '';
+      const rawImg = a.proxied_image_url || a.image_url || a.image || a.imageUrl || '';
       setAnimalInfo({
         name: a.name_kor,
         english: a.name_eng,
@@ -952,16 +902,42 @@ export default function Map() {
     }
   }
 
+  // ★ 핵심 수정: Kakao Local API 호출 에러 로깅/가이드 강화
   async function searchPlace(keyword: string) {
     try {
-      const url = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(
-        keyword,
-      )}`;
+      if (!KAKAO_REST_API_KEY) {
+        Alert.alert(
+          'Kakao REST 키 없음',
+          'KAKAO_REST_API_KEY가 비어 있습니다. .env에 REST API 키를 넣고 앱을 다시 빌드하세요.'
+        );
+        return;
+      }
+
+      const url = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(keyword)}`;
       const res = await fetch(url, {
         method: 'GET',
         headers: { Authorization: `KakaoAK ${KAKAO_REST_API_KEY}` },
       });
-      if (!res.ok) throw new Error('장소 검색 실패: ' + res.status);
+
+      // 상태코드별 상세 처리
+      if (!res.ok) {
+        const text = await res.text();
+        console.warn('[KAKAO LOCAL] status:', res.status, 'body:', text);
+        if (res.status === 401 || res.status === 403) {
+          Alert.alert(
+            '키/권한 오류',
+            'Kakao REST API 키가 잘못되었거나 Local API 사용이 비활성화되었습니다.\n' +
+              '1) .env에 REST 키가 맞는지 확인\n' +
+              '2) 카카오 개발자 콘솔에서 “로컬(Local)” API 약관 동의/활성화\n' +
+              '3) 키 재발급/재빌드 후 테스트'
+          );
+        } else if (res.status === 429) {
+          Alert.alert('요청 제한', 'Kakao Local API 쿼터를 초과했습니다. 잠시 후 다시 시도하세요.');
+        } else {
+          Alert.alert('검색 실패', `장소 검색 중 오류가 발생했습니다. (HTTP ${res.status})`);
+        }
+        return;
+      }
 
       const data = await res.json();
       if (!data.documents || data.documents.length === 0) {
@@ -997,18 +973,13 @@ export default function Map() {
       setSaveModalVisible(true);
       bottomSheetRef.current?.snapToIndex(1);
     } catch (e) {
-      Alert.alert('검색 실패', '장소 검색 중 오류가 발생했습니다.');
+      console.warn('searchPlace error:', e);
+      Alert.alert('검색 실패', '장소 검색 중 예외가 발생했습니다.');
     }
   }
 
-  function derivePlaceName(p?: {
-    name?: string;
-    location?: string;
-    lat?: number;
-    lng?: number;
-  }) {
-    const cand =
-      (p?.name && p.name.trim()) || (p?.location && p.location.trim());
+  function derivePlaceName(p?: { name?: string; location?: string; lat?: number; lng?: number }) {
+    const cand = (p?.name && p.name.trim()) || (p?.location && p.location.trim());
     if (cand) return cand;
     if (typeof p?.lat === 'number' && typeof p?.lng === 'number') {
       return `장소 ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
@@ -1047,9 +1018,7 @@ export default function Map() {
       const js = `
         (function(){
           try {
-            if (window.addSavedMarker) window.addSavedMarker(${JSON.stringify(
-              p,
-            )});
+            if (window.addSavedMarker) window.addSavedMarker(${JSON.stringify(p)});
             if (window.focusMarker) window.focusMarker(${JSON.stringify(p.id)});
           } catch (e) { console.log('inject err', e); }
           true;
@@ -1088,7 +1057,6 @@ export default function Map() {
     }
   };
 
-  /** ✅ 위치 이동: 권한 상태에 따라 모달/요청 처리 */
   async function moveToCurrentLocation() {
     const status = await ensureLocationPermissionDetailed();
 
@@ -1097,21 +1065,16 @@ export default function Map() {
       return;
     }
     if (status !== 'granted') {
-      Alert.alert(
-        '권한 필요',
-        '현재 위치를 사용하려면 위치 권한이 필요합니다.',
-      );
+      Alert.alert('권한 필요', '현재 위치를 사용하려면 위치 권한이 필요합니다.');
       return;
     }
 
     Geolocation.getCurrentPosition(
       position => {
-        // ✅ accuracy까지 구조분해
         const { latitude, longitude, accuracy } = position.coords;
 
         setCurrentLocation({ lat: latitude, lng: longitude });
 
-        // ✅ WebView에 안전하게 전달 (문자열 보간 대신 JSON 사용)
         const payload = JSON.stringify({
           lat: latitude,
           lng: longitude,
@@ -1119,42 +1082,35 @@ export default function Map() {
         });
 
         const js = `
-      (function () {
-        try {
-          if (window.setMyLocation) {
-            const d = ${payload};
-            window.setMyLocation(d.lat, d.lng, d.accuracy);
-          }
-        } catch (e) { console.log('inject err', e); }
-        true;
-      })();
-    `;
+          (function () {
+            try {
+              if (window.setMyLocation) {
+                const d = ${payload};
+                window.setMyLocation(d.lat, d.lng, d.accuracy);
+              }
+            } catch (e) { console.log('inject err', e); }
+            true;
+          })();
+        `;
         mapRef.current?.injectJavaScript(js);
       },
       err => {
         console.warn('geo error', err);
         Alert.alert('오류', '현재 위치를 가져올 수 없습니다.');
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
     );
   }
 
   function openAppSettings() {
     Linking.openSettings().catch(() => {
-      Alert.alert(
-        '오류',
-        '설정을 열 수 없습니다. 직접 앱 설정에서 권한을 허용해 주세요.',
-      );
+      Alert.alert('오류', '설정을 열 수 없습니다. 직접 앱 설정에서 권한을 허용해 주세요.');
     });
   }
 
   return (
     <>
-      <StatusBar
-        translucent
-        backgroundColor="transparent"
-        barStyle="dark-content"
-      />
+      <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
       <View style={styles.container}>
         <View style={styles.mapWrapper}>
           <WebView
@@ -1166,16 +1122,12 @@ export default function Map() {
             domStorageEnabled
             cacheEnabled={false}
             cacheMode="LOAD_NO_CACHE"
-            /** ✅ WebView에서 지오로케이션 허용 */
             geolocationEnabled={true}
             {...(Platform.OS === 'android'
               ? {
-                  // @ts-ignore — react-native-webview 타입에 아직 이 prop 정의가 없음(런타임은 동작)
-                  onGeolocationPermissionsShowPrompt: (
-                    _origin: string,
-                    callback: (allow: boolean, retain: boolean) => void,
-                  ) => {
-                    callback(true, true); // allow & remember
+                  // @ts-ignore: 런타임 지원
+                  onGeolocationPermissionsShowPrompt: (_origin: string, callback: (allow: boolean, retain: boolean) => void) => {
+                    callback(true, true);
                     return true;
                   },
                 }
@@ -1183,17 +1135,13 @@ export default function Map() {
             onLoadEnd={() => {
               mapRef.current?.injectJavaScript(`
                 try {
-                  // 초기화 시 기존 신고 마커 완전 제거 + 표시 끔
                   if (window.setReportsVisible) window.setReportsVisible(false);
                   if (window.clearReports) window.clearReports();
                 } catch(e) { console.log('init clearReports err', e); }
                 true;
               `);
 
-              // 저장 장소 마커 재동기화
               syncSavedMarkers(savedPlaces);
-
-              // 신고 데이터가 이미 존재할 경우만 WebView로 재주입
               if (Reports && Reports.length > 0) {
                 syncReportsOnWebview(Reports, reportsVisible);
               }
@@ -1204,7 +1152,6 @@ export default function Map() {
           />
         </View>
 
-        {/* 검색 드롭다운 백드롭 */}
         {dropdownOpen && (
           <Pressable
             style={styles.dropdownBackdrop}
@@ -1215,15 +1162,9 @@ export default function Map() {
           />
         )}
 
-        {/* 검색바 */}
         <View style={styles.searchBarWrapper}>
           <View style={styles.searchBar}>
-            <Ionicons
-              name="search"
-              size={22}
-              color="#bbb"
-              style={{ marginRight: 6 }}
-            />
+            <Ionicons name="search" size={22} color="#bbb" style={{ marginRight: 6 }} />
             <TextInput
               style={styles.searchInput}
               value={input}
@@ -1254,17 +1195,10 @@ export default function Map() {
                         isCurrent && styles.dropdownItemActive,
                       ]}
                     >
-                      <Ionicons
-                        name="time-outline"
-                        size={18}
-                        color="#bbb"
-                        style={{ marginRight: 8 }}
-                      />
+                      <Ionicons name="time-outline" size={18} color="#bbb" style={{ marginRight: 8 }} />
                       <TouchableOpacity
                         style={{ flex: 1 }}
-                        onPress={() =>
-                          handleSelectHistory(item.id, item.keyword)
-                        }
+                        onPress={() => handleSelectHistory(item.id, item.keyword)}
                         activeOpacity={0.8}
                       >
                         <Text style={styles.dropdownText}>{item.keyword}</Text>
@@ -1284,17 +1218,8 @@ export default function Map() {
           )}
         </View>
 
-        {/* 장소 저장 모달 */}
-        <Modal
-          visible={saveModalVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setSaveModalVisible(false)}
-        >
-          <Pressable
-            style={styles.modalBackdrop}
-            onPress={() => setSaveModalVisible(false)}
-          />
+        <Modal visible={saveModalVisible} transparent animationType="fade" onRequestClose={() => setSaveModalVisible(false)}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setSaveModalVisible(false)} />
           <View style={styles.modalCenter} pointerEvents="box-none">
             <View style={styles.saveCard}>
               <View style={styles.saveHeaderRow}>
@@ -1306,53 +1231,29 @@ export default function Map() {
 
               <Text style={styles.saveSubtitle}>검색된 장소를 저장할까요?</Text>
 
-              {!!searchResultPlace?.name && (
-                <Text style={styles.savePlaceName}>
-                  {searchResultPlace?.name}
-                </Text>
-              )}
-              {!!searchResultPlace?.location && (
-                <Text style={styles.saveAddress}>
-                  {searchResultPlace?.location}
-                </Text>
-              )}
+              {!!searchResultPlace?.name && <Text style={styles.savePlaceName}>{searchResultPlace?.name}</Text>}
+              {!!searchResultPlace?.location && <Text style={styles.saveAddress}>{searchResultPlace?.location}</Text>}
 
               <View style={styles.saveActions}>
-                <TouchableOpacity
-                  onPress={() => setSaveModalVisible(false)}
-                  activeOpacity={0.8}
-                  style={[styles.btn, styles.btnOutline]}
-                >
-                  <Text style={[styles.btnText, styles.btnOutlineText]}>
-                    취소
-                  </Text>
+                <TouchableOpacity onPress={() => setSaveModalVisible(false)} activeOpacity={0.8} style={[styles.btn, styles.btnOutline]}>
+                  <Text style={[styles.btnText, styles.btnOutlineText]}>취소</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  onPress={confirmSavePlace}
-                  activeOpacity={0.9}
-                  style={[styles.btn, styles.btnPrimary]}
-                >
-                  <Text style={[styles.btnText, styles.btnPrimaryText]}>
-                    저장
-                  </Text>
+                <TouchableOpacity onPress={confirmSavePlace} activeOpacity={0.9} style={[styles.btn, styles.btnPrimary]}>
+                  <Text style={[styles.btnText, styles.btnPrimaryText]}>저장</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         </Modal>
 
-        {/* ✅ 위치 권한 설정 안내 모달 */}
         <Modal
           visible={locationModalVisible}
           transparent
           animationType="fade"
           onRequestClose={() => setLocationModalVisible(false)}
         >
-          <Pressable
-            style={styles.modalBackdrop}
-            onPress={() => setLocationModalVisible(false)}
-          />
+          <Pressable style={styles.modalBackdrop} onPress={() => setLocationModalVisible(false)} />
           <View style={styles.modalCenter} pointerEvents="box-none">
             <View style={styles.saveCard}>
               <View style={styles.saveHeaderRow}>
@@ -1362,19 +1263,11 @@ export default function Map() {
                 <Text style={styles.saveTitle}>위치 권한이 꺼져 있어요</Text>
               </View>
 
-              <Text style={styles.saveSubtitle}>
-                현재 위치를 사용하려면 앱 설정에서 “위치” 권한을 허용해 주세요.
-              </Text>
+              <Text style={styles.saveSubtitle}>현재 위치를 사용하려면 앱 설정에서 “위치” 권한을 허용해 주세요.</Text>
 
               <View style={styles.saveActions}>
-                <TouchableOpacity
-                  onPress={() => setLocationModalVisible(false)}
-                  activeOpacity={0.8}
-                  style={[styles.btn, styles.btnOutline]}
-                >
-                  <Text style={[styles.btnText, styles.btnOutlineText]}>
-                    나중에
-                  </Text>
+                <TouchableOpacity onPress={() => setLocationModalVisible(false)} activeOpacity={0.8} style={[styles.btn, styles.btnOutline]}>
+                  <Text style={[styles.btnText, styles.btnOutlineText]}>나중에</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -1385,16 +1278,13 @@ export default function Map() {
                   activeOpacity={0.9}
                   style={[styles.btn, styles.btnPrimary]}
                 >
-                  <Text style={[styles.btnText, styles.btnPrimaryText]}>
-                    설정 열기
-                  </Text>
+                  <Text style={[styles.btnText, styles.btnPrimaryText]}>설정 열기</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         </Modal>
 
-        {/* FAB 그룹 */}
         <View style={styles.fabGroup}>
           <TouchableOpacity
             style={styles.fabButton}
@@ -1407,17 +1297,15 @@ export default function Map() {
               const next = !reportsVisible;
               setReportsVisible(next);
 
-              const safe = Reports; // 혹은 uniqueReports(Reports)
+              const safe = Reports;
               const payload = JSON.stringify(safe);
 
-              // ✅ JS 주입: clear 후 setReports 사이에 딜레이 추가
               const js = `
                 (function(){
                   if (window.__reportToggleBusy) return true;
                   window.__reportToggleBusy = true;
                   try {
                     if (${next}) {
-                      // 켜기: 이전 오버레이 완전 제거 → 약간의 텀 후 생성
                       if (window.clearReports) window.clearReports();
                       setTimeout(function(){
                         if (window.setReports) window.setReports(${payload});
@@ -1425,7 +1313,6 @@ export default function Map() {
                         ${!hasFocusedOnceRef.current ? 'if (window.focusReports) window.focusReports();' : ''}
                       }, 250);
                     } else {
-                      // 끄기: 바로 숨기고 제거만
                       if (window.clearReports) window.clearReports();
                       if (window.setReportsVisible) window.setReportsVisible(false);
                     }
@@ -1446,10 +1333,7 @@ export default function Map() {
             <Image source={LOGO} style={styles.fabLogo} resizeMode="contain" />
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.fabButton}
-            onPress={moveToCurrentLocation}
-          >
+          <TouchableOpacity style={styles.fabButton} onPress={moveToCurrentLocation}>
             <MaterialIcons name="place" size={27} color="#DD0000" />
           </TouchableOpacity>
         </View>
@@ -1477,38 +1361,18 @@ export default function Map() {
           <BottomSheetView style={{ padding: 24, paddingTop: 6 }}>
             <View style={styles.switchContainer}>
               <TouchableOpacity
-                style={[
-                  styles.switchItem,
-                  tab === '장소' && styles.switchItemActive,
-                ]}
+                style={[styles.switchItem, tab === '장소' && styles.switchItemActive]}
                 onPress={() => setTab('장소')}
                 activeOpacity={0.9}
               >
-                <Text
-                  style={[
-                    styles.switchText,
-                    tab === '장소' && styles.switchTextActive,
-                  ]}
-                >
-                  장소
-                </Text>
+                <Text style={[styles.switchText, tab === '장소' && styles.switchTextActive]}>장소</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.switchItem,
-                  tab === '정보' && styles.switchItemActive,
-                ]}
+                style={[styles.switchItem, tab === '정보' && styles.switchItemActive]}
                 onPress={() => setTab('정보')}
                 activeOpacity={0.9}
               >
-                <Text
-                  style={[
-                    styles.switchText,
-                    tab === '정보' && styles.switchTextActive,
-                  ]}
-                >
-                  정보
-                </Text>
+                <Text style={[styles.switchText, tab === '정보' && styles.switchTextActive]}>정보</Text>
               </TouchableOpacity>
             </View>
 
@@ -1527,15 +1391,8 @@ export default function Map() {
                           <View style={{ marginLeft: 6, flex: 1 }}>
                             <Text style={styles.placeTitle}>{item.name}</Text>
                             <View style={styles.placeMetaRow}>
-                              <MaterialIcons
-                                name="place"
-                                size={15}
-                                color="#444"
-                                style={{ marginRight: 2 }}
-                              />
-                              <Text style={styles.placeMetaText}>
-                                {item.location}
-                              </Text>
+                              <MaterialIcons name="place" size={15} color="#444" style={{ marginRight: 2 }} />
+                              <Text style={styles.placeMetaText}>{item.location}</Text>
                             </View>
                           </View>
 
@@ -1544,11 +1401,7 @@ export default function Map() {
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             style={{ padding: 6, marginLeft: 8 }}
                           >
-                            <Ionicons
-                              name="trash-outline"
-                              size={20}
-                              color="#888"
-                            />
+                            <Ionicons name="trash-outline" size={20} color="#888" />
                           </TouchableOpacity>
                         </View>
                       )}
@@ -1557,19 +1410,14 @@ export default function Map() {
                 ) : animalInfo ? (
                   <View>
                     <Text style={styles.animalTitle}>{animalInfo.name}</Text>
-                    <Text style={styles.animalSubtitle}>
-                      {animalInfo.english}
-                    </Text>
+                    <Text style={styles.animalSubtitle}>{animalInfo.english}</Text>
                     {animalImgUri ? (
                       <Image
                         source={{ uri: animalImgUri }}
                         style={styles.animalImage}
                         resizeMode="cover"
                         onError={() => {
-                          if (
-                            animalImgUri.includes('/image-proxy/') &&
-                            candidate
-                          ) {
+                          if (animalImgUri.includes('/image-proxy/') && candidate) {
                             setAnimalImgUri(candidate);
                           } else {
                             setAnimalImgUri(undefined);
@@ -1577,15 +1425,8 @@ export default function Map() {
                         }}
                       />
                     ) : (
-                      <View
-                        style={[
-                          styles.animalImage,
-                          { alignItems: 'center', justifyContent: 'center' },
-                        ]}
-                      >
-                        <Text style={{ color: '#999' }}>
-                          이미지를 불러올 수 없습니다.
-                        </Text>
+                      <View style={[styles.animalImage, { alignItems: 'center', justifyContent: 'center' }]}>
+                        <Text style={{ color: '#999' }}>이미지를 불러올 수 없습니다.</Text>
                       </View>
                     )}
                     <Text style={styles.animalSectionTitle}>특징</Text>
@@ -1606,13 +1447,7 @@ export default function Map() {
                     </View>
                   </View>
                 ) : (
-                  <Text
-                    style={{
-                      textAlign: 'center',
-                      marginTop: 20,
-                      color: '#999',
-                    }}
-                  >
+                  <Text style={{ textAlign: 'center', marginTop: 20, color: '#999' }}>
                     동물 이름을 검색하면 정보가 나옵니다.
                   </Text>
                 )}
@@ -1625,24 +1460,13 @@ export default function Map() {
   );
 }
 
-const STATUSBAR_HEIGHT =
-  Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0;
+const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f4f1ea' },
   mapWrapper: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
-  dropdownBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 20,
-    backgroundColor: 'transparent',
-  },
-  searchBarWrapper: {
-    position: 'absolute',
-    top: STATUSBAR_HEIGHT + 5,
-    left: 16,
-    right: 16,
-    zIndex: 30,
-  },
+  dropdownBackdrop: { ...StyleSheet.absoluteFillObject, zIndex: 20, backgroundColor: 'transparent' },
+  searchBarWrapper: { position: 'absolute', top: STATUSBAR_HEIGHT + 5, left: 16, right: 16, zIndex: 30 },
   searchBar: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1691,17 +1515,8 @@ const styles = StyleSheet.create({
   dropdownItemActive: { backgroundColor: '#faf7e9' },
   dropdownText: { fontSize: 17, color: '#444', fontWeight: 'bold' },
 
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    zIndex: 999,
-  },
-  modalCenter: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)', zIndex: 999 },
+  modalCenter: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
   saveCard: {
     width: '86%',
     maxWidth: 420,
@@ -1714,60 +1529,22 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
   },
-  saveHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  saveIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#FFF2F2',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
+  saveHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  saveIconWrap: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#FFF2F2', alignItems: 'center', justifyContent: 'center', marginRight: 8 },
   saveTitle: { fontSize: 18, fontWeight: '700', color: '#222' },
   saveSubtitle: { marginTop: 2, marginBottom: 10, color: '#666', fontSize: 14 },
-  savePlaceName: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#111',
-    marginBottom: 4,
-  },
+  savePlaceName: { fontSize: 17, fontWeight: '700', color: '#111', marginBottom: 4 },
   saveAddress: { fontSize: 14, color: '#555', marginBottom: 14 },
-  saveActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 4,
-    gap: 10,
-  },
+  saveActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4, gap: 10 },
 
-  btn: {
-    minWidth: 78,
-    height: 40,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  btn: { minWidth: 78, height: 40, borderRadius: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
   btnText: { fontSize: 15, fontWeight: '700' },
-  btnOutline: {
-    borderWidth: 1.5,
-    borderColor: '#D0D0D0',
-    backgroundColor: '#fff',
-  },
+  btnOutline: { borderWidth: 1.5, borderColor: '#D0D0D0', backgroundColor: '#fff' },
   btnOutlineText: { color: '#333' },
   btnPrimary: { backgroundColor: '#DD0000' },
   btnPrimaryText: { color: '#fff' },
 
-  fabGroup: {
-    position: 'absolute',
-    right: 18,
-    top: STATUSBAR_HEIGHT + 60,
-    alignItems: 'center',
-  },
+  fabGroup: { position: 'absolute', right: 18, top: STATUSBAR_HEIGHT + 60, alignItems: 'center' },
   fabButton: {
     backgroundColor: '#fff',
     borderRadius: 24,
@@ -1782,105 +1559,30 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
-  fabButtonActive: {
-  borderWidth: 2,        // ✅ 켜짐 표시(선택)
-  borderColor: '#DD0000',
-  },
-  fabLogo: {
-    width: 41,
-    height: 37,
-    borderRadius: 8,
-  },
-  switchContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#faf7e9',
-    borderRadius: 32,
-    padding: 3,
-    marginVertical: 2,
-    marginBottom: 12,
-  },
-  switchItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 30,
-    height: 59,
-    paddingVertical: 9,
-    backgroundColor: 'transparent',
-  },
-  switchItemActive: {
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#FEBE10',
-    borderRadius: 30,
-  },
-  switchText: {
-    fontWeight: 'bold',
-    fontSize: 21,
-    color: '#222',
-    textAlign: 'center',
-    textAlignVertical: 'center',
-  },
+  fabButtonActive: { borderWidth: 2, borderColor: '#DD0000' },
+  fabLogo: { width: 41, height: 37, borderRadius: 8 },
+
+  switchContainer: { flexDirection: 'row', backgroundColor: '#faf7e9', borderRadius: 32, padding: 3, marginVertical: 2, marginBottom: 12 },
+  switchItem: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 30, height: 59, paddingVertical: 9, backgroundColor: 'transparent' },
+  switchItemActive: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#FEBE10', borderRadius: 30 },
+  switchText: { fontWeight: 'bold', fontSize: 21, color: '#222', textAlign: 'center', textAlignVertical: 'center' },
   switchTextActive: { color: '#222' },
 
   placeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  greenCircleSmall: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 5,
-    borderColor: '#FEBE10',
-    backgroundColor: '#fff',
-  },
+  greenCircleSmall: { width: 18, height: 18, borderRadius: 9, borderWidth: 5, borderColor: '#FEBE10', backgroundColor: '#fff' },
   placeTitle: { fontWeight: 'bold', fontSize: 16, marginTop: 3, color: '#222' },
   placeMetaRow: { flexDirection: 'row', alignItems: 'center' },
-  placeMetaText: {
-    fontWeight: 'bold',
-    fontSize: 16,
-    marginLeft: 1,
-    color: '#444',
-  },
+  placeMetaText: { fontWeight: 'bold', fontSize: 16, marginLeft: 1, color: '#444' },
 
-  banner: {
-    height: 54,
-    backgroundColor: '#FEBE10',
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    overflow: 'hidden',
-  },
+  banner: { height: 54, backgroundColor: '#FEBE10', borderRadius: 10, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12, overflow: 'hidden' },
   bannerText: { fontSize: 15, fontWeight: 'bold', color: '#222' },
 
   sectionTitle: { fontWeight: 'bold', fontSize: 20, marginVertical: 8 },
-  animalTitle: {
-    fontWeight: 'bold',
-    fontSize: 22,
-    marginTop: 8,
-    marginBottom: 2,
-  },
+  animalTitle: { fontWeight: 'bold', fontSize: 22, marginTop: 8, marginBottom: 2 },
   animalSubtitle: { color: '#666', fontSize: 15, marginBottom: 9 },
-  animalImage: {
-    width: '100%',
-    height: 170,
-    borderRadius: 14,
-    backgroundColor: '#eee',
-    marginBottom: 14,
-    marginTop: 4,
-  },
-  animalSectionTitle: {
-    fontWeight: 'bold',
-    fontSize: 18,
-    marginTop: 6,
-    marginBottom: 4,
-    color: '#a58519',
-  },
+  animalImage: { width: '100%', height: 170, borderRadius: 14, backgroundColor: '#eee', marginBottom: 14, marginTop: 4 },
+  animalSectionTitle: { fontWeight: 'bold', fontSize: 18, marginTop: 6, marginBottom: 4, color: '#a58519' },
   animalFeature: { fontSize: 15, color: '#393939', marginBottom: 2 },
   animalPrecaution: { fontSize: 15, color: '#2f5d19', marginBottom: 2 },
-  divider: {
-    height: 1,
-    backgroundColor: '#7B7B7B',
-    marginVertical: 4,
-    marginBottom: 0,
-  },
+  divider: { height: 1, backgroundColor: '#7B7B7B', marginVertical: 4, marginBottom: 0 },
 });
