@@ -6,6 +6,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Home from '../screens/Home';
 import Camera from '../screens/Camera';
 import Map from '../screens/Map';
+import MapDebug from '../screens/MapDebug';
 import Mypage from '../screens/Mypage';
 import Report from '../screens/Report';
 

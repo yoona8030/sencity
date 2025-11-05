@@ -54,12 +54,26 @@ interface PlaceItem {
   lng: number;
 }
 
+// ★ NEW: 배너 페이로드 형태(REST/WS 공용)
+type BannerPayload = {
+  text: string;
+  until?: string | null;       // ISO8601 (선택)
+  ttlSeconds?: number | null;  // 대안: 수신 시점 기준 유효 초 (선택)
+};
+
 const windowHeight = Dimensions.get('window').height;
 const windowWidth = Dimensions.get('window').width;
 
 // ★ 실제 기기 + USB reverse 시엔 127.0.0.1 사용 가능 (adb reverse tcp:8000 tcp:8000)
 //   Wi-Fi 직결 시엔 192.168.x.x 로 교체
-const BACKEND_URL = 'http://127.0.0.1:8000/api';
+// ★ NEW: 프로젝트 공통 기본 URL을 .env로 빼두는 것을 권장합니다.
+//        메모리에 따르면 기본은 http://192.168.45.122:8000/api 입니다.
+//        여기서는 기존 상단 주석을 유지하되, 실제 값은 아래 상수로 사용합니다.
+const BACKEND_URL = 'http://192.168.45.122:8000/api'; // ← 필요시 .env로 이동 권장
+
+// ★ NEW: 배너 REST/WS 엔드포인트 상수
+const BANNER_POLL_ENDPOINT = `${BACKEND_URL}/banner/active/`; // REST 폴링용
+const BANNER_WS_PATH = '/ws/banner/';                         // WS 경로(호스트는 BACKEND_URL에서 파생)
 
 // =================== Kakao Map HTML ===================
 const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
@@ -94,255 +108,290 @@ const getKakaoMapHtml = (lat = 37.5611, lng = 127.0375) => `
 <body>
   <div id="map" style="width:100vw; height:100vh;"></div>
 
-  <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&autoload=false&libraries=services,clusterer,drawing"></script>
+  <!-- 🔧 중요: SDK를 동적으로 로드하고, onload 후에만 kakao.maps.load 실행 -->
   <script>
-    kakao.maps.load(function() {
-      var mapContainer = document.getElementById('map');
-      var mapOption = {
-        center: new kakao.maps.LatLng(${lat}, ${lng}),
-        level: 1
-      };
-      window.map = new kakao.maps.Map(mapContainer, mapOption);
+    (function() {
+      var RNW = window.ReactNativeWebView;
 
-      window._reportOverlays = {};
-      window._reportCoords   = [];
-      window._reportsVisible = false;
-
-      function isNum(v){ return typeof v === 'number' && isFinite(v); }
-      window.safeRelayout = function(){
-        try { if (window.map && typeof window.map.relayout === 'function') window.map.relayout(); } catch(e) {}
-      };
-
-      function circleSvgDataURL(d, ring, ringColor, fillColor) {
-        var r = d / 2;
-        var svg =
-          "<svg xmlns='http://www.w3.org/2000/svg' width='" + d + "' height='" + d + "' viewBox='0 0 " + d + " " + d + "'>" +
-          "<circle cx='" + r + "' cy='" + r + "' r='" + (r - ring/2) + "' fill='" + fillColor + "' stroke='" + ringColor + "' stroke-width='" + ring + "'/>" +
-          "</svg>";
-        return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
-      }
-      function makeCircleMarkerImage(d, ring, ringColor, fillColor) {
-        var src  = circleSvgDataURL(d, ring, ringColor, fillColor);
-        var size = new kakao.maps.Size(d, d);
-        return new kakao.maps.MarkerImage(src, size, { offset: new kakao.maps.Point(d/2, d/2) });
+      function post(msg) {
+        try { RNW && RNW.postMessage(JSON.stringify(msg)); } catch(e) {}
       }
 
-      window._savedMarkers = {};
-      window._tempMarkers = {};
-      window._savedVisible = true;
-
-      window._meMarker = null;
-      window._meAccuracyCircle = null;
-
-      function makeBlueMarkerImage(d) {
-        return makeCircleMarkerImage(d, 5, '#2E7DFF', '#ffffff');
-      }
-
-      window.setMyLocation = function(lat, lng, accuracy) {
+      function initKakao() {
         try {
-          if (!isNum(lat) || !isNum(lng)) return false;
-          var pos = new kakao.maps.LatLng(lat, lng);
-          if (!window._meMarker) {
-            var img = makeBlueMarkerImage(22);
-            window._meMarker = new kakao.maps.Marker({
-              position: pos,
-              map: window.map,
-              image: img,
-              zIndex: 10000
-            });
-          } else {
-            window._meMarker.setPosition(pos);
-            window._meMarker.setMap(window.map);
+          if (!window.kakao || !kakao.maps || !kakao.maps.load) {
+            post({ type: 'KAKAO_NOT_READY' });
+            return;
           }
-          if (isNum(accuracy) && accuracy > 0) {
-            if (window._meAccuracyCircle) window._meAccuracyCircle.setMap(null);
-            window._meAccuracyCircle = new kakao.maps.Circle({
-              center: pos,
-              radius: Math.min(accuracy, 300),
-              strokeWeight: 2, strokeColor: '#2E7DFF', strokeOpacity: 0.6, strokeStyle: 'shortdash',
-              fillColor: '#2E7DFF', fillOpacity: 0.12
-            });
-            window._meAccuracyCircle.setMap(window.map);
-          }
-          window.safeRelayout();
-          window.map.panTo(pos);
-          return true;
-        } catch(e) { return false; }
-      };
+          kakao.maps.load(function() {
+            try {
+              var mapContainer = document.getElementById('map');
+              var mapOption = {
+                center: new kakao.maps.LatLng(${lat}, ${lng}),
+                level: 1
+              };
+              window.map = new kakao.maps.Map(mapContainer, mapOption);
 
-      window._savedMarkers = {};
-      window._tempMarkers = {};
-      window._savedVisible = true;
+              window._reportOverlays = {};
+              window._reportCoords   = [];
+              window._reportsVisible = false;
 
-      window.setSavedMarkers = function (places) {
-        try { if (typeof places === 'string') places = JSON.parse(places); } catch (e) {}
-        for (var id in window._savedMarkers) { var mk = window._savedMarkers[id]; if (mk) mk.setMap(null); }
-        window._savedMarkers = {};
-        (places || []).forEach(function (p) {
-          var lat = Number(p.lat), lng = Number(p.lng);
-          if (!isNum(lat) || !isNum(lng)) return;
-          var pos = new kakao.maps.LatLng(lat, lng);
-          var img = makeCircleMarkerImage(18, 5, '#FEBA15', '#ffffff');
-          var marker = new kakao.maps.Marker({ position: pos, map: window._savedVisible ? window.map : null, image: img });
-          window._savedMarkers[p.id] = marker;
-        });
-      };
-      window.setSavedMarkersVisible = function (visible) {
-        window._savedVisible = !!visible;
-        for (var id in window._savedMarkers) { var mk = window._savedMarkers[id]; if (mk) mk.setMap(window._savedVisible ? window.map : null); }
-      };
-      window.addSavedMarker = function (place) {
-        try { if (typeof place === 'string') place = JSON.parse(place); } catch (e) {}
-        if (!place) return;
-        var lat = Number(place.lat), lng = Number(place.lng);
-        if (!isNum(lat) || !isNum(lng)) return;
-        var pos = new kakao.maps.LatLng(lat, lng);
-        var img = makeCircleMarkerImage(18, 5, '#FEBA15', '#ffffff');
-        var marker = new kakao.maps.Marker({ position: pos, map: window._savedVisible ? window.map : null, image: img });
-        window._savedMarkers[place.id] = marker;
-      };
-      window.focusMarker = function (id) {
-        var m = window._savedMarkers[id] || window._tempMarkers[id];
-        if (!m) return false;
-        window.safeRelayout();
-        window.map.panTo(m.getPosition());
-        return true;
-      };
+              function isNum(v){ return typeof v === 'number' && isFinite(v); }
+              window.safeRelayout = function(){
+                try { if (window.map && typeof window.map.relayout === 'function') window.map.relayout(); } catch(e) {}
+              };
 
-      window.clearReports = function () {
-        try {
-          if (window._reportOverlays) {
-            Object.values(window._reportOverlays).forEach(function(ov){
-              try {
-                if (ov && ov.setMap) ov.setMap(null);
-                var content = ov.getContent && ov.getContent();
-                if (content && content.parentNode) content.parentNode.removeChild(content);
-              } catch (e) {}
-            });
-          }
-          var beacons = document.querySelectorAll('.beacon-wrap');
-          beacons.forEach(function(el){ try { el.remove(); } catch (e) {} });
+              function circleSvgDataURL(d, ring, ringColor, fillColor) {
+                var r = d / 2;
+                var svg =
+                  "<svg xmlns='http://www.w3.org/2000/svg' width='" + d + "' height='" + d + "' viewBox='0 0 " + d + " " + d + "'>" +
+                  "<circle cx='" + r + "' cy='" + r + "' r='" + (r - ring/2) + "' fill='" + fillColor + "' stroke='" + ringColor + "' stroke-width='" + ring + "'/>" +
+                  "</svg>";
+                return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+              }
+              function makeCircleMarkerImage(d, ring, ringColor, fillColor) {
+                var src  = circleSvgDataURL(d, ring, ringColor, fillColor);
+                var size = new kakao.maps.Size(d, d);
+                return new kakao.maps.MarkerImage(src, size, { offset: new kakao.maps.Point(d/2, d/2) });
+              }
 
-          window._reportOverlays = {};
-          window._reportCoords = [];
-          window._reportsVisible = false;
+              window._savedMarkers = {};
+              window._tempMarkers = {};
+              window._savedVisible = true;
 
-          return true;
-        } catch (e) {
-          console.log('[clearReports err]', e);
-          return false;
-        }
-      };
+              window._meMarker = null;
+              window._meAccuracyCircle = null;
 
-      function makeBeaconDom() {
-        var wrap = document.createElement('div');
-        wrap.className = 'beacon-wrap';
-        var ring = document.createElement('div');
-        ring.className = 'beacon-ring';
-        var core = document.createElement('div');
-        core.className = 'beacon-core';
-        wrap.appendChild(ring);
-        wrap.appendChild(core);
-        return wrap;
-      }
+              function makeBlueMarkerImage(d) {
+                return makeCircleMarkerImage(d, 5, '#2E7DFF', '#ffffff');
+              }
 
-      window.setReports = function(reports) {
-        try {
-          if (typeof reports === 'string') { try { reports = JSON.parse(reports); } catch (e) { reports = []; } }
-          if (window.clearReports) window.clearReports();
+              window.setMyLocation = function(lat, lng, accuracy) {
+                try {
+                  if (!isNum(lat) || !isNum(lng)) return false;
+                  var pos = new kakao.maps.LatLng(lat, lng);
+                  if (!window._meMarker) {
+                    var img = makeBlueMarkerImage(22);
+                    window._meMarker = new kakao.maps.Marker({
+                      position: pos,
+                      map: window.map,
+                      image: img,
+                      zIndex: 10000
+                    });
+                  } else {
+                    window._meMarker.setPosition(pos);
+                    window._meMarker.setMap(window.map);
+                  }
+                  if (isNum(accuracy) && accuracy > 0) {
+                    if (window._meAccuracyCircle) window._meAccuracyCircle.setMap(null);
+                    window._meAccuracyCircle = new kakao.maps.Circle({
+                      center: pos,
+                      radius: Math.min(accuracy, 300),
+                      strokeWeight: 2, strokeColor: '#2E7DFF', strokeOpacity: 0.6, strokeStyle: 'shortdash',
+                      fillColor: '#2E7DFF', fillOpacity: 0.12
+                    });
+                    window._meAccuracyCircle.setMap(window.map);
+                  }
+                  window.safeRelayout();
+                  window.map.panTo(pos);
+                  return true;
+                } catch(e) { return false; }
+              };
 
-          (reports || []).forEach(function(r) {
-            var lat = Number(r.lat), lng = Number(r.lng);
-            if (!isNum(lat) || !isNum(lng)) return;
+              window._savedMarkers = {};
+              window._tempMarkers = {};
+              window._savedVisible = true;
 
-            var pos = new kakao.maps.LatLng(lat, lng);
-            window._reportCoords.push({ lat: lat, lng: lng });
+              window.setSavedMarkers = function (places) {
+                try { if (typeof places === 'string') places = JSON.parse(places); } catch (e) {}
+                for (var id in window._savedMarkers) { var mk = window._savedMarkers[id]; if (mk) mk.setMap(null); }
+                window._savedMarkers = {};
+                (places || []).forEach(function (p) {
+                  var lat = Number(p.lat), lng = Number(p.lng);
+                  if (!isNum(lat) || !isNum(lng)) return;
+                  var pos = new kakao.maps.LatLng(lat, lng);
+                  var img = makeCircleMarkerImage(18, 5, '#FEBA15', '#ffffff');
+                  var marker = new kakao.maps.Marker({ position: pos, map: window._savedVisible ? window.map : null, image: img });
+                  window._savedMarkers[p.id] = marker;
+                });
+              };
+              window.setSavedMarkersVisible = function (visible) {
+                window._savedVisible = !!visible;
+                for (var id in window._savedMarkers) { var mk = window._savedMarkers[id]; if (mk) mk.setMap(window._savedVisible ? window.map : null); }
+              };
+              window.addSavedMarker = function (place) {
+                try { if (typeof place === 'string') place = JSON.parse(place); } catch (e) {}
+                if (!place) return;
+                var lat = Number(place.lat), lng = Number(place.lng);
+                if (!isNum(lat) || !isNum(lng)) return;
+                var pos = new kakao.maps.LatLng(lat, lng);
+                var img = makeCircleMarkerImage(18, 5, '#FEBA15', '#ffffff');
+                var marker = new kakao.maps.Marker({ position: pos, map: window._savedVisible ? window.map : null, image: img });
+                window._savedMarkers[place.id] = marker;
+              };
+              window.focusMarker = function (id) {
+                var m = window._savedMarkers[id] || window._tempMarkers[id];
+                if (!m) return false;
+                window.safeRelayout();
+                window.map.panTo(m.getPosition());
+                return true;
+              };
 
-            var dom = makeBeaconDom();
-            var ov = new kakao.maps.CustomOverlay({
-              position: pos,
-              content: dom,
-              yAnchor: 0.5,
-              xAnchor: 0.5,
-              zIndex: 8000
-            });
-            if (window._reportsVisible) ov.setMap(window.map);
-            window._reportOverlays[r.id] = ov;
+              window.clearReports = function () {
+                try {
+                  if (window._reportOverlays) {
+                    Object.values(window._reportOverlays).forEach(function(ov){
+                      try {
+                        if (ov && ov.setMap) ov.setMap(null);
+                        var content = ov.getContent && ov.getContent();
+                        if (content && content.parentNode) content.parentNode.removeChild(content);
+                      } catch (e) {}
+                    });
+                  }
+                  var beacons = document.querySelectorAll('.beacon-wrap');
+                  beacons.forEach(function(el){ try { el.remove(); } catch (e) {} });
+
+                  window._reportOverlays = {};
+                  window._reportCoords = [];
+                  window._reportsVisible = false;
+                  return true;
+                } catch (e) {
+                  console.log('[clearReports err]', e);
+                  return false;
+                }
+              };
+
+              function makeBeaconDom() {
+                var wrap = document.createElement('div');
+                wrap.className = 'beacon-wrap';
+                var ring = document.createElement('div');
+                ring.className = 'beacon-ring';
+                var core = document.createElement('div');
+                core.className = 'beacon-core';
+                wrap.appendChild(ring);
+                wrap.appendChild(core);
+                return wrap;
+              }
+
+              window.setReports = function(reports) {
+                try {
+                  if (typeof reports === 'string') { try { reports = JSON.parse(reports); } catch (e) { reports = []; } }
+                  if (window.clearReports) window.clearReports();
+
+                  (reports || []).forEach(function(r) {
+                    var lat = Number(r.lat), lng = Number(r.lng);
+                    if (!isNum(lat) || !isNum(lng)) return;
+
+                    var pos = new kakao.maps.LatLng(lat, lng);
+                    window._reportCoords.push({ lat: lat, lng: lng });
+
+                    var dom = makeBeaconDom();
+                    var ov = new kakao.maps.CustomOverlay({
+                      position: pos,
+                      content: dom,
+                      yAnchor: 0.5,
+                      xAnchor: 0.5,
+                      zIndex: 8000
+                    });
+                    if (window._reportsVisible) ov.setMap(window.map);
+                    window._reportOverlays[r.id] = ov;
+                  });
+                } catch (e) {
+                  console.log('[setReports err]', e);
+                }
+              };
+
+              window.setReportsVisible = function(visible) {
+                window._reportsVisible = !!visible;
+                for (var id in window._reportOverlays) {
+                  var ov = window._reportOverlays[id];
+                  if (ov) ov.setMap(window._reportsVisible ? window.map : null);
+                }
+              };
+
+              window.addReport = function(report) {
+                try { if (typeof report === 'string') report = JSON.parse(report); } catch (e) {}
+                if (!report) return;
+                var lat = Number(report.lat), lng = Number(report.lng);
+                if (!isNum(lat) || !isNum(lng)) return;
+
+                var pos = new kakao.maps.LatLng(lat, lng);
+                window._reportCoords.push({ lat: lat, lng: lng });
+                var dom = makeBeaconDom();
+                var ov = new kakao.maps.CustomOverlay({
+                  position: pos,
+                  content: dom,
+                  yAnchor: 0.5,
+                  xAnchor: 0.5,
+                  zIndex: 8000
+                });
+                if (window._reportsVisible) ov.setMap(window.map);
+                window._reportOverlays[report.id] = ov;
+              };
+
+              window.focusReports = function () {
+                try {
+                  if (!window.map) return false;
+                  window.safeRelayout();
+
+                  var ids = Object.keys(window._reportOverlays || {}).filter(function(id){
+                    return !!window._reportOverlays[id] && !!window._reportOverlays[id].getPosition;
+                  });
+                  if (ids.length === 0) return false;
+
+                  if (ids.length === 1) {
+                    var ov = window._reportOverlays[ids[0]];
+                    var pos = ov && ov.getPosition && ov.getPosition();
+                    if (!pos) return false;
+                    window.map.panTo(pos);
+                    var lv = window.map.getLevel();
+                    if (lv > 8) window.map.setLevel(8);
+                    return true;
+                  }
+
+                  var bounds = new kakao.maps.LatLngBounds();
+                  var valid = false;
+                  ids.forEach(function(id){
+                    var ov = window._reportOverlays[id];
+                    if (!ov || !ov.getPosition) return;
+                    var p = ov.getPosition();
+                    if (p) { bounds.extend(p); valid = true; }
+                  });
+                  if (!valid) return false;
+
+                  window.map.setBounds(bounds, 40, 40, 40, 40);
+                  var lv2 = window.map.getLevel();
+                  if (lv2 > 8) window.map.setLevel(8);
+
+                  return true;
+                } catch (e) {
+                  console.log('focusReports err', e);
+                  return false;
+                }
+              };
+
+              post({ type: 'KAKAO_READY' });
+            } catch (e) {
+              post({ type: 'KAKAO_INIT_ERROR', error: String(e) });
+            }
           });
         } catch (e) {
-          console.log('[setReports err]', e);
+          post({ type: 'KAKAO_LOAD_WRAPPER_ERROR', error: String(e) });
         }
-      };
+      }
 
-      window.setReportsVisible = function(visible) {
-        window._reportsVisible = !!visible;
-        for (var id in window._reportOverlays) {
-          var ov = window._reportOverlays[id];
-          if (ov) ov.setMap(window._reportsVisible ? window.map : null);
-        }
-      };
-
-      window.addReport = function(report) {
-        try { if (typeof report === 'string') report = JSON.parse(report); } catch (e) {}
-        if (!report) return;
-        var lat = Number(report.lat), lng = Number(report.lng);
-        if (!isNum(lat) || !isNum(lng)) return;
-
-        var pos = new kakao.maps.LatLng(lat, lng);
-        window._reportCoords.push({ lat: lat, lng: lng });
-        var dom = makeBeaconDom();
-        var ov = new kakao.maps.CustomOverlay({
-          position: pos,
-          content: dom,
-          yAnchor: 0.5,
-          xAnchor: 0.5,
-          zIndex: 8000
-        });
-        if (window._reportsVisible) ov.setMap(window.map);
-        window._reportOverlays[report.id] = ov;
-      };
-
-      window.focusReports = function () {
-        try {
-          if (!window.map) return false;
-          window.safeRelayout();
-
-          var ids = Object.keys(window._reportOverlays || {}).filter(function(id){
-            return !!window._reportOverlays[id] && !!window._reportOverlays[id].getPosition;
-          });
-          if (ids.length === 0) return false;
-
-          if (ids.length === 1) {
-            var ov = window._reportOverlays[ids[0]];
-            var pos = ov && ov.getPosition && ov.getPosition();
-            if (!pos) return false;
-            window.map.panTo(pos);
-            var lv = window.map.getLevel();
-            if (lv > 8) window.map.setLevel(8);
-            return true;
-          }
-
-          var bounds = new kakao.maps.LatLngBounds();
-          var valid = false;
-          ids.forEach(function(id){
-            var ov = window._reportOverlays[id];
-            if (!ov || !ov.getPosition) return;
-            var p = ov.getPosition();
-            if (p) { bounds.extend(p); valid = true; }
-          });
-          if (!valid) return false;
-
-          window.map.setBounds(bounds, 40, 40, 40, 40);
-          var lv2 = window.map.getLevel();
-          if (lv2 > 8) window.map.setLevel(8);
-
-          return true;
-        } catch (e) {
-          console.log('focusReports err', e);
-          return false;
-        }
-      };
-    });
+      // 동적 스크립트 로드
+      (function loadSdk() {
+        var s = document.createElement('script');
+        // autoload=false 필수. libraries 그대로 유지
+        s.src = "https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&autoload=false&libraries=services,clusterer,drawing";
+        s.async = true;
+        s.defer = true;
+        s.onload = initKakao;
+        s.onerror = function() { post({ type: 'KAKAO_SDK_LOAD_ERROR' }); };
+        document.head.appendChild(s);
+      })();
+    })();
   </script>
 </body>
 </html>
@@ -392,6 +441,19 @@ async function refreshAccessToken() {
   return access;
 }
 
+// ★ NEW: 유틸 — BACKEND_URL → WS URL 변환
+function toWsUrl(httpApiBase: string, wsPath: string): string | null {
+  try {
+    // http://host:8000/api → ws://host:8000 + wsPath
+    const u = new URL(httpApiBase);
+    const proto = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = u.host; // host:port
+    return `${proto}//${host}${wsPath}`;
+  } catch {
+    return null;
+  }
+}
+
 export default function Map() {
   // ★ 키 로드 확인(마스킹) — 콘솔에서 즉시 진단
   useEffect(() => {
@@ -428,6 +490,13 @@ export default function Map() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [animalInfo, setAnimalInfo] = useState<AnimalInfo | null>(null);
   const [animalImgUri, setAnimalImgUri] = useState<string | undefined>(undefined);
+
+  // ★ NEW: 배너 상태
+  const [bannerMessage, setBannerMessage] = useState<string | null>(null);
+  const [bannerHideUntil, setBannerHideUntil] = useState<number | null>(null); // ms epoch
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const candidate =
     animalInfo?.proxied_image_url ||
@@ -777,7 +846,10 @@ export default function Map() {
   const bannerMargin = 5;
 
   const bannerAnimatedStyle = useAnimatedStyle(() => {
-    const top = animatedPosition.value - bannerHeight - bannerMargin;
+    // 최소 상단 고정(검색창 아래) 보정: 초기값이 0일 때도 화면 안에 보이도록
+    const minTop = STATUSBAR_HEIGHT + 60; // 검색창 아래 정도
+    const dynamicTop = animatedPosition.value - bannerHeight - bannerMargin;
+    const top = Math.max(minTop, dynamicTop);
     return { position: 'absolute', left: 8, right: 8, top, zIndex: 999 };
   });
 
@@ -1108,6 +1180,150 @@ export default function Map() {
     });
   }
 
+  // =================== ★ NEW: 배너 수신 로직 (WS + 폴링) ===================
+  function scheduleAutoHide(msEpoch?: number | null) {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    if (!msEpoch) return;
+    const delay = Math.max(0, msEpoch - Date.now());
+    hideTimerRef.current = setTimeout(() => {
+      setBannerMessage(null);
+      setBannerHideUntil(null);
+    }, delay);
+  }
+
+  // 서로 다른 백엔드 키를 받아 공통 포맷으로 맞춤
+  function normalizeBanner(obj: any): BannerPayload | null {
+    if (!obj) return null;
+    const text =
+      obj.text ??
+      obj.message ??            // 대시보드가 message로 줄 수 있음
+      obj.content ??
+      obj.title ??
+      null;
+    const until =
+      obj.until ??
+      obj.expires_at ??         // 만료 필드 명 대체
+      obj.expireAt ??
+      null;
+    const ttlSeconds = obj.ttlSeconds ?? obj.ttl ?? null;
+
+    return text ? { text: String(text), until, ttlSeconds } : null;
+  }
+
+  function applyBannerPayload(p: BannerPayload) {
+    if (!p?.text || typeof p.text !== 'string') return;
+    let untilEpoch: number | null = null;
+    if (p.until) {
+      const t = Date.parse(p.until);
+      if (!Number.isNaN(t)) untilEpoch = t;
+    } else if (p.ttlSeconds && typeof p.ttlSeconds === 'number' && p.ttlSeconds > 0) {
+      untilEpoch = Date.now() + p.ttlSeconds * 1000;
+    }
+
+    setBannerMessage(p.text);
+    setBannerHideUntil(untilEpoch);
+    scheduleAutoHide(untilEpoch);
+  }
+
+  // 응답을 정규화해서 반영, 그리고 예비 경로도 순차 시도
+  async function pollBannerOnce() {
+    const candidates = [
+      `${BANNER_POLL_ENDPOINT}`,                            // /api/banner/active/
+      `${BACKEND_URL}/banners/active/`,                     // /api/banners/active/
+      `${BACKEND_URL}/content/banner/active/`,              // /api/content/banner/active/
+    ];
+    for (const url of candidates) {
+      try {
+        const r = await authFetch(url, { method: 'GET' });
+        if (!r.ok) continue;
+        const j = await r.json();
+        const norm = normalizeBanner(j);
+        if (norm) {
+          applyBannerPayload(norm);
+          return;
+        }
+      } catch {
+        // 다음 후보 경로 시도
+      }
+    }
+  }
+
+  // 폴링 시작/정지
+  function startPolling() {
+    if (pollingRef.current) return;
+    pollBannerOnce();
+    pollingRef.current = setInterval(pollBannerOnce, 30000);
+  }
+  function stopPolling() {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }
+
+  function startBannerWs() {
+    const wsUrl = toWsUrl(BACKEND_URL, BANNER_WS_PATH);
+    if (!wsUrl) {
+      startPolling();
+      return;
+    }
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        // WS가 열리면 폴링 중지
+        // stopPolling();
+      };
+      ws.onmessage = ev => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (data?.type === 'banner' && data?.text) {
+            applyBannerPayload(data as BannerPayload);
+          }
+        } catch {
+          // 텍스트만 오는 경우 대비
+          if (typeof ev.data === 'string' && ev.data.trim()) {
+            applyBannerPayload({ text: String(ev.data) });
+          }
+        }
+      };
+      ws.onerror = () => {
+        // 에러 시 폴링 백업 활성화
+        startPolling();
+      };
+      ws.onclose = () => {
+        // 닫히면 폴링 백업, 그리고 10초 후 재시도
+        startPolling();
+        setTimeout(() => {
+          if (!wsRef.current) startBannerWs();
+        }, 10000);
+      };
+    } catch {
+      startPolling();
+    }
+  }
+
+  useEffect(() => {
+    // 마운트 시 즉시 1회 폴링으로 현재 배너를 먼저 띄우고,
+    // 이후 실시간 수신은 WS로 커버 (WS가 실패하면 폴링 백업 가동)
+    pollBannerOnce();
+    startBannerWs();
+    return () => {
+      if (wsRef.current) {
+        try { wsRef.current.close(); } catch {}
+        wsRef.current = null;
+      }
+      stopPolling();
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = null;
+      }
+    };
+    // BACKEND_URL 변경 가능성 거의 없으므로 deps=[]
+  }, []);
+
+  // =================== 렌더 ===================
   return (
     <>
       <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
@@ -1116,16 +1332,29 @@ export default function Map() {
           <WebView
             ref={mapRef}
             originWhitelist={['*']}
-            source={{ html: mapHtml }}
+            source={{ html: mapHtml, baseUrl: 'https://localhost' }}  // ✅ baseUrl 추가
             style={{ flex: 1 }}
             javaScriptEnabled
             domStorageEnabled
+            mixedContentMode="always"
             cacheEnabled={false}
             cacheMode="LOAD_NO_CACHE"
             geolocationEnabled={true}
+            // ✅ 외부 접근/파일 접근 허용 (안전한 테스트용)
+            allowFileAccess
+            allowUniversalAccessFromFileURLs
+            // (선택) WebView ↔ 내부 로그 모니터링
+            onMessage={(e) => {
+              try {
+                const msg = JSON.parse(e.nativeEvent.data);
+                if (msg?.type) {
+                  console.log('[KAKAO_MSG]', msg);
+                }
+              } catch {}
+            }}
             {...(Platform.OS === 'android'
               ? {
-                  // @ts-ignore: 런타임 지원
+                  // @ts-ignore
                   onGeolocationPermissionsShowPrompt: (_origin: string, callback: (allow: boolean, retain: boolean) => void) => {
                     callback(true, true);
                     return true;
@@ -1140,7 +1369,6 @@ export default function Map() {
                 } catch(e) { console.log('init clearReports err', e); }
                 true;
               `);
-
               syncSavedMarkers(savedPlaces);
               if (Reports && Reports.length > 0) {
                 syncReportsOnWebview(Reports, reportsVisible);
@@ -1338,13 +1566,27 @@ export default function Map() {
           </TouchableOpacity>
         </View>
 
-        <Animated.View style={[bannerAnimatedStyle]}>
-          <View style={styles.banner}>
-            <Text style={styles.bannerText} numberOfLines={1}>
-              오후 9시 30분경 "##역" 반경 2KM 이내에 고라니 출현
-            </Text>
-          </View>
-        </Animated.View>
+        {/* ★ NEW: 배너 — 메시지가 있을 때만 렌더 */}
+        {bannerMessage && (
+          <Animated.View style={[bannerAnimatedStyle]}>
+            <View style={styles.banner}>
+              <Text style={styles.bannerText} numberOfLines={1}>
+                {bannerMessage}
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setBannerMessage(null);
+                  setBannerHideUntil(null);
+                  if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null; }
+                }}
+                style={styles.bannerClose}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={18} color="#222" />
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        )}
 
         <BottomSheet
           ref={bottomSheetRef}
@@ -1574,8 +1816,26 @@ const styles = StyleSheet.create({
   placeMetaRow: { flexDirection: 'row', alignItems: 'center' },
   placeMetaText: { fontWeight: 'bold', fontSize: 16, marginLeft: 1, color: '#444' },
 
-  banner: { height: 54, backgroundColor: '#FEBE10', borderRadius: 10, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12, overflow: 'hidden' },
+  banner: { 
+    height: 54, backgroundColor: '#FEBE10', borderRadius: 10, 
+    justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12, 
+    overflow: 'hidden', 
+    // ★ NEW: 닫기 버튼 공간 확보
+    paddingRight: 40 
+  },
   bannerText: { fontSize: 15, fontWeight: 'bold', color: '#222' },
+  // ★ NEW: 배너 닫기 버튼
+  bannerClose: {
+    position: 'absolute',
+    right: 8,
+    top: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.5)'
+  },
 
   sectionTitle: { fontWeight: 'bold', fontSize: 20, marginVertical: 8 },
   animalTitle: { fontWeight: 'bold', fontSize: 22, marginTop: 8, marginBottom: 2 },

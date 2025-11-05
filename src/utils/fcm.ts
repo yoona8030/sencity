@@ -1,11 +1,16 @@
 // src/utils/fcm.ts
-import { Platform, AppState, AppStateStatus } from 'react-native';
+import { useEffect } from 'react';
+import {
+  Platform,
+  AppState,
+  AppStateStatus,
+  PermissionsAndroid,
+} from 'react-native';
 import messaging from '@react-native-firebase/messaging';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL } from '@env';
 
-const RAW_API: string = (API_BASE_URL as any) || 'http://127.0.0.1:8000/api';
-const API = RAW_API;
+/** ✅ API 고정 (요청 사항) */
+const API = 'http://127.0.0.1:8000/api';
 
 const CACHE_KEY = '@fcm.token.last';
 
@@ -20,9 +25,26 @@ async function safeFetch(url: string, init: RequestInit, ms = 8000) {
   }
 }
 
+/** Android 13+ 권한 / iOS 권한 */
+export async function ensurePushPermission() {
+  if (Platform.OS === 'android') {
+    try {
+      await PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS');
+    } catch {
+      /* 무시 */
+    }
+  } else {
+    try {
+      await messaging().requestPermission();
+    } catch {
+      /* 무시 */
+    }
+  }
+}
+
 /**
  * FCM 디바이스 토큰을 서버에 업서트
- * - 엔드포인트: POST {API}/devices/register-fcm/
+ * - 엔드포인트: POST {API}/device-tokens/
  * - 바디: { token: string, platform: 'android' | 'ios' }
  * - Authorization: Bearer {accessToken} (로그인 상태면)
  */
@@ -46,7 +68,7 @@ export async function registerFcmTokenToServer() {
 
   // 4) 서버 업서트 호출
   try {
-    const endpoint = `${API}/devices/`;
+    const endpoint = `${API}/device-tokens/`;
     const res = await safeFetch(endpoint, {
       method: 'POST',
       headers,
@@ -55,14 +77,21 @@ export async function registerFcmTokenToServer() {
         platform: Platform.OS, // 'android' | 'ios'
       }),
     });
-    if (res?.ok) {
+
+    if (res && [200, 201, 204].includes(res.status)) {
       await AsyncStorage.setItem(CACHE_KEY, token);
-      if (__DEV__) console.log('[FCM] token registered to server');
-    } else if (__DEV__) {
-      console.warn('[FCM] register-fcm non-OK:', res?.status);
+      if (__DEV__)
+        console.log(
+          '[FCM] token registered to server (status=',
+          res.status,
+          ')',
+        );
+    } else {
+      const text = await res?.text?.();
+      if (__DEV__)
+        console.warn('[FCM] register-fcm non-OK:', res?.status, text);
     }
   } catch (e) {
-    // 네트워크/타임아웃은 조용히 무시 → 다음 실행/토큰 갱신 때 재시도
     if (__DEV__) console.warn('[FCM] register-fcm failed:', e);
   }
 
@@ -71,9 +100,10 @@ export async function registerFcmTokenToServer() {
 
 /** FCM 토큰 갱신 리스너(앱 생애주기 동안 1회 attach) */
 export function attachFcmTokenRefreshListener() {
-  return messaging().onTokenRefresh(async () => {
+  return messaging().onTokenRefresh(async newToken => {
     try {
-      if (__DEV__) console.log('[FCM] onTokenRefresh -> re-register');
+      if (__DEV__) console.log('[FCM] onTokenRefresh ->', newToken);
+      await AsyncStorage.removeItem(CACHE_KEY); // 캐시 무효화
       await registerFcmTokenToServer();
     } catch {
       /* 무시 */
@@ -104,11 +134,11 @@ export async function forceRefreshFcmTokenAndRegister() {
   try {
     if (__DEV__) console.log('[FCM] force refresh: deleteToken → getToken');
     await messaging().deleteToken(); // 기존 토큰 폐기
-    await AsyncStorage.removeItem(CACHE_KEY); // 캐시도 무효화
+    await AsyncStorage.removeItem(CACHE_KEY); // 캐시 무효화
+
     // 일부 기기에서 getToken 직후 null 가능 → 재시도 보호
     let token = await messaging().getToken();
     if (!token) {
-      // 짧은 backoff 후 한 번 더
       await new Promise(r => setTimeout(r, 500));
       token = await messaging().getToken();
     }
@@ -124,5 +154,20 @@ export async function forceRefreshFcmTokenAndRegister() {
 export async function clearCachedFcmToken() {
   try {
     await AsyncStorage.removeItem(CACHE_KEY);
-  } catch {}
+  } catch {
+    /* 무시 */
+  }
+}
+
+/** ✅ 부트스트랩 훅: 화면/루트에서 호출만 하면 끝 */
+export function useFcmBootstrap() {
+  useEffect(() => {
+    ensurePushPermission().then(registerFcmTokenToServer);
+    const unsub = attachFcmTokenRefreshListener();
+    const unwatch = watchAppStateForFcm();
+    return () => {
+      unsub();
+      unwatch();
+    };
+  }, []);
 }

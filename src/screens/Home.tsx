@@ -1,5 +1,4 @@
-// src/screens/Home.tsx
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   View,
@@ -16,6 +15,7 @@ import {
   ActivityIndicator,
   StyleProp,
   ViewStyle,
+  Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { KAKAO_JS_KEY } from '@env';
@@ -121,7 +121,8 @@ export default function Home() {
   const goReportStats = () => navigation.navigate('Report', { focus: 'stats', _t: Date.now() });
   const goReportHistory = () => navigation.navigate('Report', { focus: 'history', _t: Date.now() });
 
-  // ✅ 홈의 WebView에서도 autoload=false + kakao.maps.load 사용
+  // ===== 홈 섹션용 카카오 지도 (동적 로더 + baseUrl 필요) =====
+  const webRef = useRef<WebView>(null);
   const kakaoMapHtml = useMemo(() => {
     const key = KAKAO_JS_KEY || '';
     return `
@@ -129,54 +130,52 @@ export default function Home() {
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <meta
-    name="viewport"
-    content="initial-scale=1.0, maximum-scale=1.0, width=device-width, height=device-height, user-scalable=no"
-  />
+  <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0, width=device-width, height=device-height, user-scalable=no" />
   <style>
-    html, body, #map {
-      margin:0; padding:0; height:100%; width:100%;
-      background:#f0f0f0;
-    }
+    html, body, #map { margin:0; padding:0; height:100%; width:100%; background:#f0f0f0; }
     .center-msg {
       display:flex; height:100%; align-items:center; justify-content:center;
       color:#666; font-family:system-ui, -apple-system, Roboto, 'Noto Sans KR', sans-serif;
       font-size:14px; text-align:center; padding:12px;
     }
   </style>
-  ${
-    key
-      ? `<script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services"></script>`
-      : ''
-  }
 </head>
 <body>
   <div id="map"></div>
   <script>
     (function(){
-      try {
-        var hasKey = ${JSON.stringify(!!key)};
-        if (!hasKey) {
-          document.getElementById('map').innerHTML =
-            "<div class='center-msg'>KAKAO_JS_KEY가 설정되어 있지 않습니다 (.env 확인 후 다시 빌드)</div>";
-          return;
-        }
-        // SDK 로드가 끝난 뒤 초기화
-        kakao.maps.load(function(){
-          try {
-            var el = document.getElementById('map');
-            var center = new kakao.maps.LatLng(37.54217, 126.9368); // 기본 중심
-            var map = new kakao.maps.Map(el, { center: center, level: 4 });
-            new kakao.maps.Marker({ position: center, map: map });
-          } catch (e) {
-            document.getElementById('map').innerHTML =
-              "<div class='center-msg'>지도를 초기화하는 중 오류가 발생했습니다.<br/>" + (e && e.message ? e.message : e) + "</div>";
-          }
-        });
-      } catch (e) {
+      var RNW = window.ReactNativeWebView;
+      function post(type, extra){ try{ RNW && RNW.postMessage(JSON.stringify(Object.assign({type}, extra||{}))); }catch(e){} }
+
+      var HAS_KEY = ${JSON.stringify(!!key)};
+      if (!HAS_KEY) {
         document.getElementById('map').innerHTML =
-          "<div class='center-msg'>지도 스크립트 오류<br/>" + (e && e.message ? e.message : e) + "</div>";
+          "<div class='center-msg'>KAKAO_JS_KEY가 설정되어 있지 않습니다(.env 확인 후 다시 빌드)</div>";
+        return;
       }
+
+      function initKakao(){
+        try{
+          if (!window.kakao || !kakao.maps || !kakao.maps.load) { post('K_NOT_READY'); return; }
+          kakao.maps.load(function(){
+            try{
+              var el = document.getElementById('map');
+              var center = new kakao.maps.LatLng(37.54217, 126.9368);
+              var map = new kakao.maps.Map(el, { center: center, level: 4 });
+              new kakao.maps.Marker({ position: center, map: map });
+              post('K_READY');
+            }catch(e){ post('K_INIT_ERR', { error: String(e) }); }
+          });
+        }catch(e){ post('K_LOAD_WRAPPER_ERR', { error: String(e) }); }
+      }
+
+      // SDK 동적 로드 (onload 후 init)
+      var s = document.createElement('script');
+      s.src = "https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services";
+      s.async = true; s.defer = true;
+      s.onload = function(){ post('SDK_ONLOAD'); initKakao(); };
+      s.onerror = function(){ post('SDK_LOAD_ERR'); };
+      document.head.appendChild(s);
     })();
   </script>
 </body>
@@ -273,16 +272,34 @@ export default function Home() {
           {/* 지도 섹션 */}
           <View style={styles.mapSection}>
             <WebView
+              ref={webRef}
               originWhitelist={['*']}
-              source={{ html: kakaoMapHtml }}
+              // ✅ baseUrl 추가 (카카오 콘솔에 https://localhost 등록 필수)
+              source={{ html: kakaoMapHtml, baseUrl: 'https://localhost' }}
               style={styles.webview}
               javaScriptEnabled
               domStorageEnabled
               mixedContentMode="always"
               cacheEnabled={false}
+              // (옵션) 진단 로그
+              onMessage={(e) => {
+                try { console.log('[HOME KAKAO]', JSON.parse(e.nativeEvent.data)); } catch {}
+              }}
               onError={({ nativeEvent }) => {
                 console.warn('[Home WebView error]', nativeEvent);
               }}
+              // (옵션) 일부 기기 정책 우회를 돕는 설정
+              allowFileAccess
+              allowUniversalAccessFromFileURLs
+              {...(Platform.OS === 'android'
+                ? {
+                    // @ts-ignore
+                    onGeolocationPermissionsShowPrompt: (_origin: string, callback: (allow: boolean, retain: boolean) => void) => {
+                      callback(true, true);
+                      return true;
+                    },
+                  }
+                : null)}
             />
             {/* 홈에서 지도를 터치하면 상세 Map 화면으로 이동 */}
             <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={0.8} onPress={() => navigation.navigate('Map')} />
