@@ -109,7 +109,10 @@ export async function login(
   email: string,
   password: string,
 ): Promise<LoginResponse> {
-  const res = await fetch(`${API_BASE}/login/`, {
+  const url = `${API_BASE}/login/`;
+  console.log('>>> [AUTH] login URL =', url); // ★ 추가
+
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ email, password }),

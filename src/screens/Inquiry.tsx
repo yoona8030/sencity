@@ -21,8 +21,9 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import Checkbox from '../components/Checkbox';
+import { API_BASE_URL } from '@env';
 
-export const BACKEND_URL = 'http://127.0.0.1:8000/api';
+export const API_BASE = API_BASE_URL;
 
 /* ===== (선택) DEV 자동 로그인 설정 — 배포 전 삭제/비활성 권장 ===== */
 const DEV_USERNAME = 'yuna';
@@ -32,7 +33,7 @@ const DEV_PASSWORD = 'yuna';
 async function refreshAccessToken() {
   const refreshToken = await AsyncStorage.getItem('refreshToken');
   if (!refreshToken) throw new Error('No refresh token');
-  const res = await fetch(`${BACKEND_URL}/auth/jwt/refresh/`, {
+  const res = await fetch(`${API_BASE}/auth/jwt/refresh/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh: refreshToken }),
@@ -69,11 +70,11 @@ async function authFetch(url: string, init: RequestInit = {}) {
 async function devEnsureLogin() {
   // 이미 로그인되어 있으면 패스
   try {
-    const who = await authFetch(`${BACKEND_URL}/whoami/`);
+    const who = await authFetch(`${API_BASE}/whoami/`);
     if (who.ok) return;
   } catch {}
   // 토큰 생성
-  const r = await fetch(`${BACKEND_URL}/auth/jwt/create/`, {
+  const r = await fetch(`${API_BASE}/auth/jwt/create/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ username: DEV_USERNAME, password: DEV_PASSWORD }),
@@ -172,7 +173,7 @@ export default function Inquiry() {
         content: body,
       };
 
-      const r = await authFetch(`${BACKEND_URL}/inquiries/`, {
+      const r = await authFetch(`${API_BASE}/inquiries/`, {
         method: 'POST',
         body: JSON.stringify(payload),
       });
@@ -216,7 +217,7 @@ export default function Inquiry() {
           }
         }
 
-        const res = await authFetch(`${BACKEND_URL}/whoami/`);
+        const res = await authFetch(`${API_BASE}/whoami/`);
         if (res.ok) {
           const m = await res.json();
           setMe({ username: m?.username, is_staff: !!m?.is_staff });
@@ -246,7 +247,7 @@ export default function Inquiry() {
     setLoading(true);
     try {
       // 1) 기본 목록
-      let listRes = await authFetch(`${BACKEND_URL}/inquiries/`);
+      let listRes = await authFetch(`${API_BASE}/inquiries/`);
       let raw: any = {};
       try {
         raw = await listRes.json();
@@ -262,7 +263,7 @@ export default function Inquiry() {
 
       // 2) staff이고 0건이면 all 쿼리로 재시도(백엔드 커스텀 필터 대비)
       if ((me?.is_staff ?? false) && rows.length === 0) {
-        const res2 = await authFetch(`${BACKEND_URL}/inquiries/?all=1`);
+        const res2 = await authFetch(`${API_BASE}/inquiries/?all=1`);
         const raw2 = await res2.json().catch(() => ({}));
         if (res2.ok) rows = Array.isArray(raw2) ? raw2 : raw2.results ?? rows;
       }
@@ -273,7 +274,7 @@ export default function Inquiry() {
           let preview = '';
           try {
             const mRes = await authFetch(
-              `${BACKEND_URL}/inquiries/${it.id}/messages/`,
+              `${API_BASE}/inquiries/${it.id}/messages/`,
             );
             if (mRes.ok) {
               const msgs: any[] = await mRes.json();
@@ -330,7 +331,7 @@ export default function Inquiry() {
             onPress={async () => {
               try {
                 await devEnsureLogin();
-                const res = await authFetch(`${BACKEND_URL}/whoami/`);
+                const res = await authFetch(`${API_BASE}/whoami/`);
                 if (res.ok) {
                   const m = await res.json();
                   setMe({ username: m?.username, is_staff: !!m?.is_staff });

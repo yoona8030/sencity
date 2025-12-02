@@ -15,8 +15,9 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import { API_BASE_URL } from '@env';
 
-const BACKEND_URL = 'http://127.0.0.1:8000/api'; // 프로젝트에 맞게 조정
+export const API_BASE = API_BASE_URL; // 프로젝트에 맞게 조정
 
 type Profile = {
   name: string;
@@ -131,7 +132,7 @@ export default function AccountInfo() {
       if (res.status === 401) {
         const refresh = await AsyncStorage.getItem('refreshToken');
         if (refresh) {
-          const r = await fetch(`${BACKEND_URL}/token/refresh/`, {
+          const r = await fetch(`${API_BASE}/token/refresh/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refresh }),
@@ -154,7 +155,7 @@ export default function AccountInfo() {
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await authFetch(`${BACKEND_URL}/user/profile/`);
+      const res = await authFetch(`${API_BASE}/user/profile/`);
       if (!res.ok) throw new Error(`load ${res.status}`);
       const data = await res.json();
       setProfile({
@@ -194,7 +195,7 @@ export default function AccountInfo() {
         consent_location: profile.consent_location,
         consent_marketing: profile.consent_marketing,
       };
-      await authFetch(`${BACKEND_URL}/user/profile/`, {
+      await authFetch(`${API_BASE}/user/profile/`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
       });
@@ -206,12 +207,12 @@ export default function AccountInfo() {
           new_password: newPwd,
         };
         let ok = false;
-        let pwRes = await authFetch(`${BACKEND_URL}/user/change-password/`, {
+        let pwRes = await authFetch(`${API_BASE}/user/change-password/`, {
           method: 'POST',
           body: JSON.stringify(pwPayload),
         });
         if (pwRes.status === 404) {
-          pwRes = await authFetch(`${BACKEND_URL}/auth/password/change/`, {
+          pwRes = await authFetch(`${API_BASE}/auth/password/change/`, {
             method: 'POST',
             body: JSON.stringify(pwPayload),
           });

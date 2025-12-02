@@ -1,3 +1,4 @@
+// src/screens/Camera.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
@@ -40,7 +41,41 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Stage = 'camera' | 'preview';
 
 const BOTTOM_BTN_H = 52;
-const EXTRA_GAP = 12; // 버튼과 카메라 사이 여유 간격
+const EXTRA_GAP = 12;
+const MIN_CONFIDENCE = 0.65; // (지금은 안 쓰지만 남겨둠)
+
+// 비타깃 라벨(사람/사물/배경 등)
+const NON_TARGET_LABELS = new Set<string>([
+  '-',
+  'unknown',
+  'background',
+  'bg',
+  'others',
+  'none',
+  'person',
+  'people',
+  'human',
+  'car',
+  'truck',
+  'bus',
+  'bicycle',
+  'motorcycle',
+  'chair',
+  'table',
+  'bottle',
+  'cup',
+  'phone',
+  'tv',
+]);
+
+// recognizeAnimal 반환(유연 처리)
+type AiTop =
+  | {
+      label?: string | null;
+      prob?: number | string | null;
+    }
+  | null
+  | undefined;
 
 export default function CameraScreen() {
   const navigation = useNavigation<Nav>();
@@ -60,46 +95,57 @@ export default function CameraScreen() {
     null,
   );
   const [address, setAddress] = useState<string | null>(null);
-  const [aiLabel, setAiLabel] = useState<string | null>(null);
-  const [recogError, setRecogError] = useState(false); // 인식 실패 여부
 
-  const [localDoneVisible, setLocalDoneVisible] = useState(false); // 즉시 안내
-  const [serverDoneVisible, setServerDoneVisible] = useState(false); // 서버 완료
+  // 인식 결과(분리 관리)
+  const [aiLabelKor, setAiLabelKor] = useState<string | null>(null); // 내부/신고용(한글)
+  const [aiDisplay, setAiDisplay] = useState<string | null>(null); // 화면표시용(영어 그룹)
+  const [aiScore, setAiScore] = useState<number | null>(null); // 0~1
+  const [rawLabel, setRawLabel] = useState<string | null>(null); // 디버깅용 원라벨
+  const [recogError, setRecogError] = useState(false); // 실패 배지 노출
+
+  // 신고 UI
+  const [serverDoneVisible, setServerDoneVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // 카메라 권한
   useEffect(() => {
     (async () => {
       if (!hasPermission && !askingCam) {
         setAskingCam(true);
         const ok = await requestPermission();
         setAskingCam(false);
-        if (!ok)
+        if (!ok) {
           Alert.alert('권한 필요', '설정 > 앱 권한에서 카메라를 허용해주세요.');
+        }
       }
     })();
   }, [hasPermission, requestPermission, askingCam]);
 
+  // 토큰 관련 디버깅 로그(유지)
   useEffect(() => {
     (async () => {
-      const keys = await AsyncStorage.getAllKeys();
-      const pairs = await AsyncStorage.multiGet(keys);
-      const kv = Object.fromEntries(pairs);
-      console.log('[AS_KEYS]', keys);
-      // 토큰 후보만 출력
-      const candidates = Object.entries(kv).filter(
-        ([k]) => /access|token|jwt|auth/i.test(k)
-      );
-      console.log('[AS_TOKEN_CANDIDATES]', candidates);
-      // 값이 객체(JSON)일 수도 있으니 파싱 시도
-      for (const [k, v] of candidates) {
-        try {
-          const j = JSON.parse(v ?? 'null');
-          console.log(`[AS_JSON:${k}]`, j);
-        } catch {}
+      try {
+        const keys = await AsyncStorage.getAllKeys();
+        const pairs = await AsyncStorage.multiGet(keys);
+        const kv = Object.fromEntries(pairs);
+        console.log('[AS_KEYS]', keys);
+        const candidates = Object.entries(kv).filter(([k]) =>
+          /access|token|jwt|auth/i.test(k),
+        );
+        console.log('[AS_TOKEN_CANDIDATES]', candidates);
+        for (const [k, v] of candidates) {
+          try {
+            const j = JSON.parse(v ?? 'null');
+            console.log(`[AS_JSON:${k}]`, j);
+          } catch {}
+        }
+      } catch (e) {
+        console.log('[AS_ERR]', e);
       }
     })();
   }, []);
 
+  // 위치 권한
   const locPerm: Permission | null = useMemo(() => {
     if (Platform.OS === 'ios') return PERMISSIONS.IOS.LOCATION_WHEN_IN_USE;
     if (Platform.OS === 'android')
@@ -150,21 +196,184 @@ export default function CameraScreen() {
     fetchMyLocation();
   }, []);
 
-  // ✅ 공통 인식 실행 유틸 (recognizeAnimal -> 단일 객체 반환)
+  // 서버 Animal ID 매핑(한글 기준)
+  const labelToAnimalId: Record<string, number> = {
+    멧토끼: 12,
+    노루: 13,
+    다람쥐: 14,
+    고라니: 15,
+    반달가슴곰: 16,
+    멧돼지: 17,
+    중대백로: 19,
+    너구리: 23,
+    족제비: 26,
+    왜가리: 28,
+    청설모: 30,
+    강아지: 32,
+    고양이: 33,
+  };
+
+  // 표기 규칙: 한글 → 영어 그룹(화면 표시용)
+  const korToEnDisplay: Record<string, string> = {
+    고라니: 'deer',
+    노루: 'deer',
+    청설모: 'squirrel',
+    다람쥐: 'squirrel',
+    중대백로: 'egret_heron',
+    왜가리: 'egret_heron',
+    멧돼지: 'wild boar',
+    족제비: 'weasel',
+    멧토끼: 'hare',
+    반달가슴곰: 'asiatic black bear',
+    강아지: 'dog',
+    고양이: 'cat',
+  };
+
+  // 라벨 정규화: 앞에 붙은 번호/언더스코어(예: "08_Dog") 제거
+  const norm = (s: string) =>
+    (s ?? '')
+      .toLowerCase()
+      .replace(/^[0-9]+[_\s-]*/, '') // "08_Dog" -> "dog"
+      .replace(/[_-]+/g, ' ')
+      .replace(/[^a-z0-9가-힣\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  // 영문 별칭 → 한글 타깃(키는 norm() 형태)
+  const aliasToKor: Record<string, string> = {
+    goat: '고라니',
+    'roe deer': '노루',
+    deer: '노루',
+    'wild boar': '멧돼지',
+    boar: '멧돼지',
+    squirrel: '청설모',
+    chipmunk: '다람쥐',
+    raccoon: '너구리',
+    'asiatic black bear': '반달가슴곰',
+    bear: '반달가슴곰',
+    hare: '멧토끼',
+    weasel: '족제비',
+    heron: '왜가리',
+    haron: '왜가리', // 백엔드 보정 실패 대비용(방어 코드)
+    egret: '중대백로',
+    'great egret': '중대백로',
+    dog: '강아지',
+    cat: '고양이',
+  };
+  // 영문/한글 라벨 → 한글 타깃 라벨
+  const toKorLabel = (raw: string) => {
+    if (!raw) return '';
+
+    const n = norm(raw);
+
+    // dog / cat 하드코딩 fallback
+    if (n === 'dog') return '강아지';
+    if (n === 'cat') return '고양이';
+
+    const alias = aliasToKor[n];
+    if (alias) return alias;
+
+    if (labelToAnimalId[raw]) {
+      return raw;
+    }
+
+    return raw;
+  };
+
+  // 한글 라벨 → 화면 표시용 영어 그룹
+  const toDisplayLabel = (kor: string) => korToEnDisplay[kor] ?? kor;
+
+  // score 파싱(문자/숫자, 0~100 → 0~1 보정)
+  const toUnitScore = (
+    v: number | string | null | undefined,
+  ): number | null => {
+    if (v == null) return null;
+    let num = typeof v === 'string' ? Number(v) : v;
+    if (!isFinite(num)) return null;
+    if (num > 1) num = num / 100;
+    if (num < 0) num = 0;
+    if (num > 1) num = 1;
+    return num;
+  };
+
+  // 다양한 반환 구조에서 top1 추출
+  const pickTop = (ret: any): AiTop => {
+    if (!ret) return null;
+    if (Array.isArray(ret)) return ret[0] ?? null;
+    if (ret.top1 && typeof ret.top1 === 'object') return ret.top1;
+    return ret;
+  };
+
+  // 인식 실행
   async function runRecognize(uri: string) {
     setRecogError(false);
-    setAiLabel(null);
+    setAiLabelKor(null);
+    setAiDisplay(null);
+    setAiScore(null);
+    setRawLabel(null);
 
     try {
-      const top = await recognizeAnimal(uri); // 문자열 그대로 전달
-      if (!top?.label || top.label === '-') {
-        setRecogError(true);
-      } else {
-        setAiLabel(top.label);
-        setRecogError(false);
+      console.time('AI_REQ');
+      const ret = await recognizeAnimal(uri);
+      console.timeEnd('AI_REQ');
+      const top = pickTop(ret) as AiTop;
+      console.log('[AI RAW FULL]', JSON.stringify(ret, null, 2));
+      console.log('[AI TOP]', top);
+
+      const raw = (top?.label ?? '').trim();
+      const scoreRaw = (top as any)?.prob ?? (top as any)?.score ?? null;
+      const score = toUnitScore(scoreRaw);
+      const rawN = norm(raw);
+
+      const kor = toKorLabel(raw);
+      const isTarget = typeof labelToAnimalId[kor] === 'number';
+
+      console.log('[RECOG DEBUG]', {
+        raw,
+        rawN,
+        kor,
+        isTarget,
+        scoreRaw,
+        score,
+      });
+
+      setRawLabel(raw || null);
+      if (typeof score === 'number') {
+        setAiScore(score);
       }
-    } catch {
+
+      // 비타깃 즉시 실패
+      if (!raw || NON_TARGET_LABELS.has(rawN)) {
+        console.warn('[RECOG] non-target or empty → FAIL', raw);
+        setRecogError(true);
+        return;
+      }
+
+      // 타깃이면 점수와 무관하게 무조건 PASS
+      if (isTarget) {
+        setAiLabelKor(kor);
+        setAiDisplay(toDisplayLabel(kor));
+        setRecogError(false);
+        console.log('[RECOG] PASS (target)', {
+          raw,
+          kor,
+          score,
+          display: toDisplayLabel(kor),
+        });
+        return;
+      }
+
+      // 미등록 종이면 실패
       setRecogError(true);
+      console.warn('[RECOG] FAIL (non-target)', { raw, kor, score, isTarget });
+      return;
+    } catch (e) {
+      console.log('[RECOG] exception', e);
+      setRecogError(true);
+      setAiLabelKor(null);
+      setAiDisplay(null);
+      setAiScore(null);
+      setRawLabel(null);
     }
   }
 
@@ -180,10 +389,11 @@ export default function CameraScreen() {
 
       setPhotoUri(uri);
       setStage('preview');
-      setAiLabel(null);
+      setAiLabelKor(null);
+      setAiDisplay(null);
       setRecogError(false);
 
-      await runRecognize(uri); // <-- { uri } 아님
+      await runRecognize(uri);
     } catch (e: any) {
       Alert.alert('촬영 오류', e?.message ?? '사진 촬영에 실패했습니다.');
     }
@@ -193,71 +403,43 @@ export default function CameraScreen() {
     const r = await launchImageLibrary({
       mediaType: 'photo',
       selectionLimit: 1,
-      quality: 0.9,
+      quality: 0.5, // 0.9 --> 0.5 (속도 위해)
     });
     const uri = r.assets?.[0]?.uri;
     if (!uri) return;
 
     setPhotoUri(uri);
     setStage('preview');
-    setAiLabel(null);
+    setAiLabelKor(null);
+    setAiDisplay(null);
     setRecogError(false);
-    
-    await runRecognize(uri); // <-- { uri } 아님
-  };
 
-  const labelToAnimalId: Record<string, number> = {
-    '멧토끼': 12,
-    '노루': 13,
-    '다람쥐': 14,
-    '고라니': 15,
-    '반달가슴곰': 16,
-    '멧돼지': 17,
-    '중대백로': 19,
-    '너구리': 23,
-    '족제비': 26,
-    '왜가리': 28,
-    '청설모': 30,
+    await runRecognize(uri);
   };
-  const aliasToKor: Record<string, string> = {
-    'goat': '고라니',
-    'wild boar': '멧돼지',
-    'raccoon': '너구리',
-    'chipmunk': '다람쥐',
-    'weasel': '족제비',
-    'hare': '멧토끼',
-    'roe deer': '노루',
-    'asiatic black bear': '반달가슴곰',
-    'great egret': '중대백로',
-    'heron': '왜가리',
-    'squirrel': '청설모',
-  };
-
-  // 공백 제거 + 소문자 변환 등 정규화
-  const norm = (s: string) => s?.trim().toLowerCase().replace(/\s+/g, ' ') ?? '';
 
   const handleReport = async () => {
-    console.log('[DEBUG] 신고 버튼 클릭됨');
+    console.log('[DEBUG] 신고 버튼 클릭됨]');
     try {
-      // (로딩 시작)
       setSubmitting(true);
 
+      if (recogError || !aiLabelKor) {
+        Alert.alert(
+          '인식 실패',
+          '동물을 인식하지 못했습니다. 다시 찍어주세요.',
+        );
+        return;
+      }
       if (!photoUri) {
         Alert.alert('신고 실패', '사진이 없습니다. 먼저 촬영해주세요.');
         return;
       }
-      if (!aiLabel) {
-        Alert.alert('신고 실패', 'AI 인식 결과가 없습니다. 재촬영 후 다시 시도해주세요.');
-        return;
-      }
 
-      const aiNorm = norm(aiLabel);
-      const kor = labelToAnimalId[aiLabel] ? aiLabel : (aliasToKor[aiNorm] ?? aiLabel);
-      const animalId = labelToAnimalId[kor];
-
+      const animalId = labelToAnimalId[aiLabelKor];
       if (typeof animalId !== 'number') {
-        console.log('[DEBUG] aiLabel=', aiLabel, 'aiNorm=', aiNorm, 'kor=', kor);
-        Alert.alert('신고 실패', `라벨(${aiLabel})에 매핑된 동물 ID가 없습니다.`);
+        Alert.alert(
+          '신고 실패',
+          `라벨(${aiLabelKor})에 매핑된 동물 ID가 없습니다.`,
+        );
         return;
       }
 
@@ -276,11 +458,9 @@ export default function CameraScreen() {
       console.log('[DEBUG] 신고 실패', e);
       Alert.alert('신고 실패', String(e?.message ?? e));
     } finally {
-      // (로딩 종료)
       setSubmitting(false);
     }
   };
-
 
   const bottomSafePad = 12 + tabBarH + insets.bottom + BOTTOM_BTN_H;
 
@@ -298,6 +478,12 @@ export default function CameraScreen() {
       </View>
     );
   }
+
+  const canReport =
+    !submitting &&
+    !recogError &&
+    !!aiLabelKor &&
+    typeof labelToAnimalId[aiLabelKor] === 'number';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
@@ -320,7 +506,7 @@ export default function CameraScreen() {
         <View style={{ width: 36 }} />
       </View>
 
-      {/* 위치: pill/버튼 공통 → 가운데 정렬 */}
+      {/* 위치 */}
       {address ? (
         <View style={styles.locationPill}>
           <Text style={styles.locationText} numberOfLines={1}>
@@ -336,7 +522,7 @@ export default function CameraScreen() {
         </TouchableOpacity>
       )}
 
-      {/* 카메라 카드 */}
+      {/* 카메라 / 프리뷰 */}
       <View
         style={[styles.photoCard, { marginBottom: bottomSafePad + EXTRA_GAP }]}
       >
@@ -352,15 +538,16 @@ export default function CameraScreen() {
         {stage === 'preview' && !!photoUri && (
           <>
             <Image source={{ uri: photoUri }} style={styles.previewImg} />
-            {/* 실패 시 어둡게 */}
             {recogError && <View style={styles.dim} />}
           </>
         )}
 
-        {/* 성공 시 중앙 배지 */}
-        {!recogError && aiLabel != null && (
+        {/* 결과 배지: 영어 그룹 라벨만 표시 */}
+        {(aiDisplay != null || rawLabel != null) && (
           <View pointerEvents="none" style={styles.aiPillCenter}>
-            <Text style={styles.aiText}>AI 인식 결과: {aiLabel}</Text>
+            <Text style={styles.aiText}>
+              AI 인식 결과: {aiDisplay ?? rawLabel}
+            </Text>
           </View>
         )}
 
@@ -398,82 +585,80 @@ export default function CameraScreen() {
         </TouchableOpacity>
       )}
 
+      {/* PREVIEW: 다시 찍기 / 신고하기 / 앨범 선택 */}
       {stage === 'preview' && (
         <View
-          style={[
-            styles.bottomRow,
-            { bottom: 12 + tabBarH + insets.bottom },
-          ]}
+          style={[styles.bottomRow, { bottom: 12 + tabBarH + insets.bottom }]}
         >
-          {/* 1) 다시 찍기 */}
           <TouchableOpacity
             onPress={() => {
               setPhotoUri(null);
-              setAiLabel(null);
+              setAiLabelKor(null);
+              setAiDisplay(null);
+              setAiScore(null);
+              setRawLabel(null);
               setRecogError(false);
               setStage('camera');
             }}
-            style={[styles.smallBtn, styles.smallBtnGrey, { flex: 1, marginRight: 8 }]}
+            style={[
+              styles.smallBtn,
+              styles.smallBtnGrey,
+              { flex: 1, marginRight: 6 },
+            ]}
             activeOpacity={0.85}
           >
-            <Text style={[styles.smallBtnText, { color: '#333', textAlign: 'center' }]}>
+            <Text
+              style={[
+                styles.smallBtnText,
+                { color: '#333', textAlign: 'center' },
+              ]}
+            >
               다시 찍기
             </Text>
           </TouchableOpacity>
 
-          {/* 2) 앨범 선택 */}
-          <TouchableOpacity
-            onPress={handlePickFromGallery}
-            style={[styles.smallBtn, styles.smallBtnYellow, { flex: 1, marginHorizontal: 8 }]}
-            activeOpacity={0.85}
-          >
-            <Text style={[styles.smallBtnText, { color: '#000', textAlign: 'center' }]}>
-              앨범 선택
-            </Text>
-          </TouchableOpacity>
-
-          {/* 3) 신고하기 */}
           <TouchableOpacity
             onPress={handleReport}
-            disabled={submitting}
+            disabled={!canReport}
             style={[
               styles.smallBtn,
               styles.smallBtnRed,
-              { flex: 1, marginLeft: 8, opacity: recogError ? 0.5 : 1 },
+              { flex: 1, marginHorizontal: 6, opacity: canReport ? 1 : 0.5 },
             ]}
             activeOpacity={0.85}
           >
-            <Text style={[styles.smallBtnText, { color: '#fff', textAlign: 'center' }]}>
+            <Text
+              style={[
+                styles.smallBtnText,
+                { color: '#fff', textAlign: 'center' },
+              ]}
+            >
               신고하기
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handlePickFromGallery}
+            style={[
+              styles.smallBtn,
+              styles.smallBtnYellow,
+              { flex: 1, marginLeft: 6 },
+            ]}
+            activeOpacity={0.85}
+          >
+            <Text
+              style={[
+                styles.smallBtnText,
+                { color: '#000', textAlign: 'center' },
+              ]}
+            >
+              앨범 선택
             </Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* 신고 즉시 안내 모달 */}
-      <Modal
-        transparent
-        visible={localDoneVisible}
-        animationType="fade"
-        onRequestClose={() => setLocalDoneVisible(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalMessage}>
-              신고가 완료되었습니다.{'\n'}
-              안전한 지역으로 대피하시길 바랍니다.
-            </Text>
-            <TouchableOpacity
-              style={styles.modalBtn}
-              onPress={() => setLocalDoneVisible(false)}
-            >
-              <Text style={styles.modalBtnText}>확인</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* 서버 전송 완료 모달 */}
+      {/* 신고 완료 모달 */}
       <Modal
         transparent
         visible={serverDoneVisible}
@@ -487,9 +672,11 @@ export default function CameraScreen() {
               style={styles.modalBtn}
               onPress={() => {
                 setServerDoneVisible(false);
-                // 초기 상태로 복귀
                 setPhotoUri(null);
-                setAiLabel(null);
+                setAiLabelKor(null);
+                setAiDisplay(null);
+                setAiScore(null);
+                setRawLabel(null);
                 setRecogError(false);
                 setStage('camera');
               }}
@@ -510,7 +697,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#000',
   },
-
   header: {
     height: 64,
     paddingTop: 6,
@@ -519,7 +705,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-
   locationPill: {
     alignSelf: 'stretch',
     marginHorizontal: 16,
@@ -531,14 +716,12 @@ const styles = StyleSheet.create({
     marginTop: 15,
   },
   locationBtn: { backgroundColor: '#FEBA15' },
-
   locationText: {
     color: '#111',
     fontWeight: '600',
     fontSize: 20,
     textAlign: 'center',
   },
-
   photoCard: {
     flex: 1,
     marginTop: 12,
@@ -553,7 +736,6 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
   },
   previewImg: { width: '100%', height: '100%', resizeMode: 'cover' },
-
   aiPillCenter: {
     position: 'absolute',
     alignSelf: 'center',
@@ -569,7 +751,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
-
   errorCard: {
     position: 'absolute',
     alignSelf: 'center',
@@ -581,10 +762,11 @@ const styles = StyleSheet.create({
     minWidth: 250,
     minHeight: 100,
     alignItems: 'center',
+    zIndex: 2,
+    elevation: 6,
   },
   errorTitle: { color: '#fff', fontWeight: '800', fontSize: 16 },
   errorMsg: { color: '#fff', marginTop: 2, fontWeight: '600' },
-
   bottomBtn: {
     position: 'absolute',
     left: 16,
@@ -595,14 +777,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bottomBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
-
   bottomRow: {
     position: 'absolute',
     left: 16,
     right: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
-      
   },
   smallBtn: {
     height: 44,
@@ -614,9 +794,8 @@ const styles = StyleSheet.create({
   },
   smallBtnYellow: { backgroundColor: '#FEBA15' },
   smallBtnGrey: { backgroundColor: '#D2D2D2' },
-  smallBtnRed: { backgroundColor: '#DD0000' }, // ← 추가
+  smallBtnRed: { backgroundColor: '#DD0000' },
   smallBtnText: { fontWeight: '800', fontSize: 15 },
-
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.35)',
@@ -656,8 +835,5 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
     alignItems: 'center',
   },
-  modalBtnText: {
-    color: '#111',
-    fontWeight: '700',
-  },
+  modalBtnText: { color: '#111', fontWeight: '700' },
 });

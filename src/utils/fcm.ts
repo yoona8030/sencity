@@ -8,9 +8,9 @@ import {
 } from 'react-native';
 import messaging from '@react-native-firebase/messaging';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '@env';
 
-/** ✅ API 고정 (요청 사항) */
-const API = 'http://127.0.0.1:8000/api';
+export const API_BASE = API_BASE_URL;
 
 const CACHE_KEY = '@fcm.token.last';
 
@@ -68,7 +68,7 @@ export async function registerFcmTokenToServer() {
 
   // 4) 서버 업서트 호출
   try {
-    const endpoint = `${API}/device-tokens/`;
+    const endpoint = `${API_BASE}/device-tokens/`;
     const res = await safeFetch(endpoint, {
       method: 'POST',
       headers,

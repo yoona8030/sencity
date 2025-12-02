@@ -3,12 +3,13 @@ import { KAKAO_REST_API_KEY, API_BASE_URL } from '@env';
 
 // ---------- 타입 ----------
 export type RecognizeTop = {
-  label: string; // 표준 영문 (예: "Goat" | "Squirrel" | "Heron/Egret" | ...)
-  label_ko?: string; // 그룹 한글 병기
+  label: string; // 예: "Goat" | "Squirrel" ...
+  label_ko?: string;
   prob?: number; // 0~1
-  group?: string; // 내부 그룹 키
-  members?: [string, number][]; // 원라벨 분포
-  animal_id?: number; // 서버가 제공 시
+  group?: string;
+  members?: [string, number][];
+  animal_id?: number;
+  label_raw?: string; // 백엔드에서 온 원래 라벨(옵션)
 };
 
 // ---------- 1) 신고(무인증) ----------
@@ -40,37 +41,48 @@ export async function postReportNoAuth_IdFields(p: ReportPayload) {
 }
 
 // ---------- 2) AI 인식 (그룹 버전) ----------
-export async function recognizeAnimal(photoUri: string): Promise<RecognizeTop> {
-  const base = (API_BASE_URL || '').replace(/\/+$/, ''); // 예: http://127.0.0.1:8000/api 또는 사내 IP
-  const url = `${base}/ml/recognize/`;
+export async function recognizeAnimal(
+  photoUri: string,
+): Promise<RecognizeTop[] | RecognizeTop | null> {
+  if (!photoUri) {
+    return null;
+  }
 
-  const form = new FormData();
-  form.append('photo', {
+  const filename = photoUri.split('/').pop() ?? 'photo.jpg';
+
+  const formData = new FormData();
+  formData.append('image', {
     uri: photoUri,
-    name: 'photo.jpg',
+    name: filename,
     type: 'image/jpeg',
   } as any);
 
-  const res = await fetch(url, {
+  const res = await fetch(`${API_BASE_URL}/ai/classify/`, {
     method: 'POST',
-    body: form,
-    headers: { Accept: 'application/json' }, // Multipart는 Content-Type 자동
+    body: formData,
   });
 
   if (!res.ok) {
-    const msg = await res.text().catch(() => '');
-    throw new Error(msg || `HTTP ${res.status}`);
+    const text = await res.text().catch(() => '');
+    throw new Error(`AI 인식 실패: ${res.status} ${text}`);
   }
 
-  const json = (await res.json()) ?? {};
-  return {
-    label: json.label ?? '-',
-    label_ko: json.label_ko,
-    prob: json.prob,
-    group: json.group,
-    members: json.members,
-    animal_id: json.animal_id,
-  };
+  const json: any = await res.json();
+
+  // 백엔드 응답: { ok: true, results: [ {...}, ... ] }
+  if (Array.isArray(json)) {
+    return json;
+  }
+  if (Array.isArray(json.results)) {
+    return json.results;
+  }
+
+  // 혹시 옛날 형태(top1)도 들어올 수 있으니 최소한의 호환 처리
+  if (json.top1) {
+    return json;
+  }
+
+  return json;
 }
 
 // ---------- 3) 카카오 역지오코딩 (좌표 → 주소, 안전 폴백/타임아웃/재시도 포함) ----------

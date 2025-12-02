@@ -1,3 +1,6 @@
 // src/constants.ts
-export const API_BASE = 'http://127.0.0.1:8000/api'; // ✅ 사용자 환경 메모에 맞춤
+import { API_BASE_URL } from '@env';
+
+export const API_BASE = API_BASE_URL;
+
 export const REPORT_POINTS_URL = `${API_BASE}/dashboard/report-points/`;

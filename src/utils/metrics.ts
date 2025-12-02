@@ -4,7 +4,9 @@ import DeviceInfo from 'react-native-device-info';
 import { Platform } from 'react-native';
 import { API_BASE_URL } from '@env';
 
-const API: string = (API_BASE_URL as any) || 'http://127.0.0.1:8000/api';
+const API: string =
+  (API_BASE_URL as any) ||
+  'https://dramaturgic-moneyed-cecelia.ngrok-free.dev/api';
 const METRICS_URL = `${API}/metrics/events/`;
 const DEFAULT_TIMEOUT_MS = 8000;
 

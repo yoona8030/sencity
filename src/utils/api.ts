@@ -6,9 +6,10 @@ import axios, {
 } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { API_BASE_URL } from '@env';
 
 // --- Base URL ---
-export const API_BASE = 'http://127.0.0.1:8000/api';
+export const API_BASE = API_BASE_URL;
 
 // --- Axios 인스턴스 ---
 export const api = axios.create({

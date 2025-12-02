@@ -22,6 +22,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '@env';
 
 // ✅ 커스텀 체크박스(Reanimated 버전)
 import Checkbox from '../components/Checkbox';
@@ -34,7 +35,7 @@ type Props = { navigation: SignUpScreenNavigationProp };
 
 type EmailCheckResponse = { is_duplicate: boolean };
 
-const API_BASE = 'http://127.0.0.1:8000/api';
+export const API_BASE = API_BASE_URL;
 
 const SignUp: React.FC<Props> = ({ navigation }) => {
   const insets = useSafeAreaInsets();

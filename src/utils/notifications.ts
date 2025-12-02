@@ -136,6 +136,14 @@ export function attachForegroundFCMListener() {
   const messaging = getMessaging(app);
 
   const unsubMessage = onMessage(messaging, async remoteMessage => {
+    const data = (remoteMessage.data || {}) as Record<string, string>;
+    if (data.type === 'banner_refresh') {
+      // Map이 떠있으면 즉시 갱신, 없으면 조용히 패스
+      try {
+        await (globalThis as any).SENCITY_POLL_BANNER?.();
+      } catch {}
+      return; // 다른 알림 로직은 수행하지 않음 (원하면 제거 가능)
+    }
     // 포그라운드에서도 notification 동봉 시(드묾) OS 중복 가능성 → 스킵
     try {
       await presentRemoteMessage(remoteMessage);
@@ -172,6 +180,15 @@ export function registerBackgroundFCMHandler() {
   const messaging = getMessaging(app);
 
   setBackgroundMessageHandler(messaging, async remoteMessage => {
+    const data = (remoteMessage.data || {}) as Record<string, string>;
+    if (data.type === 'banner_refresh') {
+      // Map이 떠있으면 즉시 갱신, 없으면 조용히 패스
+      try {
+        await (globalThis as any).SENCITY_POLL_BANNER?.();
+      } catch {}
+      return; // 다른 알림 로직은 수행하지 않음 (원하면 제거 가능)
+    }
+
     try {
       await presentRemoteMessage(remoteMessage);
     } catch (e) {

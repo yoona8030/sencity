@@ -11,7 +11,9 @@ function stripTrailingSlash(url: string) {
 
 // 기본값 + 공백 제거 + 말슬래시 제거
 export const API_BASE_URL = stripTrailingSlash(
-  (API_BASE_URL_RAW || 'http://127.0.0.1:8000/api').trim(),
+  (
+    API_BASE_URL_RAW || 'https://dramaturgic-moneyed-cecelia.ngrok-free.dev/api'
+  ).trim(),
 );
 
 // 키는 공백 제거만

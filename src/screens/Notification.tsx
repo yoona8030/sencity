@@ -16,18 +16,19 @@ import {
   SafeAreaView,
 } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '@env';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Notification'>;
 type Rt = RouteProp<RootStackParamList, 'Notification'>;
 
-const BACKEND_URL = 'http://127.0.0.1:8000/api';
+export const API_BASE = API_BASE_URL;
 
 /* ----------------------------- Auth utils ----------------------------- */
 async function refreshAccessToken() {
   const refreshToken = await AsyncStorage.getItem('refreshToken');
   if (!refreshToken) throw new Error('No refresh token');
 
-  const res = await fetch(`${BACKEND_URL}/auth/jwt/refresh/`, {
+  const res = await fetch(`${API_BASE}/auth/jwt/refresh/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh: refreshToken }),
@@ -212,7 +213,7 @@ async function fetchOneFeedbackByReportIds(reportIds: number[]) {
   await Promise.all(
     uniq.map(async rid => {
       try {
-        const r = await authFetch(`${BACKEND_URL}/feedbacks/?report=${rid}`);
+        const r = await authFetch(`${API_BASE}/feedbacks/?report=${rid}`);
         if (!r.ok) return;
         const arr = await r.json();
         if (Array.isArray(arr) && arr.length) {
@@ -321,7 +322,7 @@ export default function NotificationScreen() {
     (async () => {
       try {
         // 전체 공지
-        const g = await fetch(`${BACKEND_URL}/notifications/?type=group`);
+        const g = await fetch(`${API_BASE}/notifications/?type=group`);
         let groupList: any[] = [];
         try {
           const gj = await g.json();
@@ -333,7 +334,7 @@ export default function NotificationScreen() {
 
         // 내 알림
         const n = await authFetch(
-          `${BACKEND_URL}/notifications/?type=individual&scope=mine`,
+          `${API_BASE}/notifications/?type=individual&scope=mine`,
         );
         let raw: any[] = [];
         try {

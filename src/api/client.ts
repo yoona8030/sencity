@@ -1,8 +1,12 @@
 // src/api/client.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { jwtDecode } from 'jwt-decode';
+import { API_BASE_URL } from '@env';
 
-export const BASE_URL = 'http://127.0.0.1:8000/api';
+export const API_BASE = API_BASE_URL;
+
+// ★ 여기서 한 번 BASE_URL 찍어보기
+console.log('>>> [API] BASE_URL =', API_BASE);
 
 const DEFAULT_TIMEOUT_MS = 8000; // 업로드 제외 일반 요청 타임아웃(현실화)
 const REFRESH_PATH = '/token/refresh/';
@@ -32,13 +36,17 @@ export class ApiError extends Error {
 
 /* ---------------- Token helpers ---------------- */
 async function getAccessToken(): Promise<string | null> {
-  return AsyncStorage.getItem(AS.access);
+  const t = await AsyncStorage.getItem(AS.access);
+  // console.log('>>> [API] getAccessToken =', t);
+  return t;
 }
 async function setAccessToken(t: string) {
   await AsyncStorage.setItem(AS.access, t);
 }
 async function getRefreshToken(): Promise<string | null> {
-  return AsyncStorage.getItem(AS.refresh);
+  const t = await AsyncStorage.getItem(AS.refresh);
+  // console.log('>>> [API] getRefreshToken =', t);
+  return t;
 }
 async function setRefreshToken(t: string) {
   await AsyncStorage.setItem(AS.refresh, t);
@@ -64,11 +72,20 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    // ★ 실제로 어떤 URL로 나가는지 찍기
+    console.log(
+      '>>> [API] fetchWithTimeout URL =',
+      url,
+      'method =',
+      init.method,
+    );
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (err: any) {
     if (err?.name === 'AbortError') {
+      console.log('>>> [API] AbortError (timeout)', timeoutMs);
       throw new ApiError(`요청 시간 초과 (${timeoutMs}ms)`, 0);
     }
+    console.log('>>> [API] NETWORK ERROR =', err?.message);
     throw new ApiError(
       '서버에 연결할 수 없습니다. 네트워크/서버 주소를 확인해주세요.',
       0,
@@ -97,6 +114,7 @@ async function ensureFreshAccess() {
   const now = Math.floor(Date.now() / 1000);
   // 만료 60초 전이면 미리 갱신
   if (exp - now <= 60) {
+    console.log('>>> [API] access 만료 임박, refresh 시도');
     await refreshOnce(); // 실패 시 throw → 상위에서 처리
   }
 }
@@ -104,9 +122,12 @@ async function ensureFreshAccess() {
 /* ---------------- Refresh 1회 시도 ---------------- */
 async function refreshOnce() {
   const refresh = await getRefreshToken();
-  if (!refresh) throw new ApiError('no refresh token', 401, { logout: true });
+  if (!refresh) {
+    console.log('>>> [API] refreshOnce: refresh 토큰 없음');
+    throw new ApiError('no refresh token', 401, { logout: true });
+  }
 
-  const url = `${BASE_URL}${REFRESH_PATH}`;
+  const url = `${API_BASE}${REFRESH_PATH}`;
   const res = await fetchWithTimeout(
     url,
     {
@@ -126,6 +147,7 @@ async function refreshOnce() {
     try {
       data = txt ? JSON.parse(txt) : null;
     } catch {}
+    console.log('>>> [API] refresh 실패 status =', res.status, 'data =', data);
     throw new ApiError(`refresh failed (HTTP ${res.status})`, res.status, {
       raw: data,
       logout: true,
@@ -135,6 +157,7 @@ async function refreshOnce() {
   const data = await res.json();
   const newAccess: string | undefined = data?.access ?? data?.token;
   if (!newAccess) {
+    console.log('>>> [API] refresh 응답에 access 없음', data);
     throw new ApiError('no access in refresh response', 401, {
       logout: true,
       raw: data,
@@ -145,6 +168,7 @@ async function refreshOnce() {
     // ROTATE_REFRESH_TOKENS=True이면 새 refresh도 저장
     await setRefreshToken(data.refresh);
   }
+  console.log('>>> [API] refresh 성공, 새 access 저장');
   return newAccess;
 }
 
@@ -161,7 +185,7 @@ export async function request<T = any>(
 ): Promise<T> {
   const url = path.startsWith('http')
     ? path
-    : `${BASE_URL}${path.startsWith('/') ? '' : '/'}${path}`;
+    : `${API_BASE}${path.startsWith('/') ? '' : '/'}${path}`;
 
   const isFormData =
     typeof FormData !== 'undefined' && body instanceof FormData;
@@ -171,7 +195,11 @@ export async function request<T = any>(
     try {
       await ensureFreshAccess();
     } catch (e) {
-      // 선제 갱신이 실패해도, 아래 본요청에서 401 재시도로 한 번 더 시도
+      console.log(
+        '>>> [API] ensureFreshAccess 실패, 본요청에서 재시도 예정',
+        e,
+      );
+      // 선제 갱신 실패해도, 아래 본요청에서 401 재시도로 한 번 더 시도
     }
   }
 
@@ -194,9 +222,12 @@ export async function request<T = any>(
     timeoutMs ?? DEFAULT_TIMEOUT_MS,
   );
 
+  console.log('>>> [API] 1차 응답 status =', res.status, 'url =', url);
+
   // 3) 401이면 refresh 1회 → 재시도
   if (auth && res.status === 401) {
     try {
+      console.log('>>> [API] 401 감지, refreshOnce 시도');
       await refreshOnce();
       const access2 = await getAccessToken();
       res = await fetchWithTimeout(
@@ -218,8 +249,10 @@ export async function request<T = any>(
         },
         timeoutMs ?? DEFAULT_TIMEOUT_MS,
       );
+      console.log('>>> [API] refresh 후 재요청 status =', res.status);
     } catch (e) {
       // 갱신 실패 → 토큰 정리 + 로그아웃 플래그
+      console.log('>>> [API] refresh 실패, 토큰 삭제 및 로그아웃 처리');
       await clearTokens();
       throw new ApiError('세션이 만료되었습니다. 다시 로그인해주세요.', 401, {
         logout: true,
@@ -233,8 +266,11 @@ export async function request<T = any>(
     if (res.status === 204) return undefined as unknown as T;
     const text = await res.text();
     try {
-      return (text ? JSON.parse(text) : null) as T;
+      const parsed = text ? JSON.parse(text) : null;
+      // console.log('>>> [API] 성공 응답:', parsed);
+      return parsed as T;
     } catch {
+      // console.log('>>> [API] 성공 응답 (텍스트):', text);
       return text as unknown as T; // 응답이 텍스트인 경우
     }
   }
@@ -250,6 +286,15 @@ export async function request<T = any>(
     server?.message ||
     (typeof server === 'string' ? server : '') ||
     `요청에 실패했습니다. (HTTP ${res.status})`;
+
+  console.log(
+    '>>> [API] 에러 응답 status =',
+    res.status,
+    'server =',
+    server,
+    'msg =',
+    serverMsg,
+  );
 
   if (res.status === 401) {
     await clearTokens();

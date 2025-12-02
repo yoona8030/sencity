@@ -3,5 +3,11 @@
   "files.autoGuessEncoding": false,
   "files.insertFinalNewline": true,
   "files.trimTrailingWhitespace": true,
-  "files.eol": "\n"
+  "files.eol": "\n",
+
+  "python.defaultInterpreterPath": "C:\\Users\\a9349\\sencity_backend\\venv311\\Scripts\\python.exe",
+  "python.analysis.extraPaths": [
+    "C:\\Users\\a9349\\sencity_backend\\venv311\\Lib\\site-packages"
+  ],
+  "python.analysis.diagnosticMode": "workspace"
 }

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Switch, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { API_BASE_URL } from '@env';
 
 const AS = {
   enabled: 'offline_enabled',
@@ -10,7 +11,7 @@ const AS = {
 } as const;
 
 // TODO: 실제 동기화할 엔드포인트 목록(예시)
-const API_BASE = 'http://127.0.0.1:8000/api';
+export const API_BASE = API_BASE_URL;
 const PREFETCH_ENDPOINTS = [
   '/animals/',
   '/location/regions/',
